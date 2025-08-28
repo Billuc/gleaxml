@@ -119,20 +119,10 @@ fn attribute_value() -> nibble.Parser(String, lexer.XmlToken, a) {
   }
 }
 
-// fn tokens_between(
-//   start: lexer.XmlToken,
-//   end: lexer.XmlToken,
-// ) -> nibble.Parser(List(lexer.XmlToken), lexer.XmlToken, a) {
-//   use _ <- nibble.do(nibble.token(start))
-//   use tokens <- nibble.do(nibble.take_until(fn(tok) { tok == end }))
-//   use _ <- nibble.do(nibble.token(end))
-//   nibble.return(tokens)
-// }
-
 fn children() -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
   use state <- nibble.loop([])
   use el <- nibble.do(
-    nibble.optional(nibble.one_of([tag(), text_content(), comment()])),
+    nibble.optional(nibble.one_of([tag(), text_content(), comment(), cdata()])),
   )
 
   case el {
@@ -148,7 +138,7 @@ fn tag_end(name: String) -> nibble.Parser(Nil, lexer.XmlToken, g) {
   nibble.return(Nil)
 }
 
-fn comment() {
+fn comment() -> nibble.Parser(XmlNode, lexer.XmlToken, k) {
   use _ <- nibble.do(nibble.token(lexer.CommentStart))
   use values <- nibble.do(
     nibble.take_map_while(fn(tok) {
@@ -163,7 +153,22 @@ fn comment() {
   nibble.return(Comment(string.join(values, "")))
 }
 
-pub fn parser() {
+fn cdata() -> nibble.Parser(XmlNode, lexer.XmlToken, j) {
+  use _ <- nibble.do(nibble.token(lexer.CDATAOpen))
+  use values <- nibble.do(
+    nibble.take_map_while(fn(tok) {
+      case tok {
+        lexer.Text(v) -> option.Some(v)
+        _ -> option.None
+      }
+    }),
+  )
+  use _ <- nibble.do(nibble.token(lexer.CDATAClose))
+
+  nibble.return(Text(string.join(values, "")))
+}
+
+pub fn parser() -> nibble.Parser(XmlNode, lexer.XmlToken, i) {
   tag()
 }
 

@@ -12,6 +12,8 @@ pub type XmlToken {
   CommentStart
   CommentEnd
   Quote(quote: String)
+  CDATAOpen
+  CDATAClose
 }
 
 pub type Mode {
@@ -20,11 +22,25 @@ pub type Mode {
   Content
   Comment
   AttrValue(quote: String)
+  CDATA
 }
 
 pub fn lexer() {
   lexer.advanced(fn(mode: Mode) {
     case mode {
+      Content -> [
+        lexer.token("<!--", CommentStart) |> lexer.into(fn(_) { Comment }),
+        lexer.token("<![CDATA[", CDATAOpen) |> lexer.into(fn(_) { CDATA }),
+        name_with_prefix("</")
+          |> lexer.map(fn(name) { TagEnd(name:) })
+          |> lexer.into(fn(_) { EndTag }),
+        name_with_prefix("<")
+          |> lexer.map(fn(name) { TagOpen(name:) })
+          |> lexer.into(fn(_) { StartTag }),
+        lexer.whitespace(Nil) |> lexer.ignore(),
+        lexer.token("\n", Nil) |> lexer.ignore(),
+        lexer.identifier("[^<&]", "[^<&]", set.new(), Text),
+      ]
       StartTag -> [
         lexer.token("=", Equals),
         lexer.token("/>", TagSelfClose) |> lexer.into(fn(_) { Content }),
@@ -34,6 +50,15 @@ pub fn lexer() {
         name_matcher() |> lexer.map(fn(name) { Text(name) }),
         lexer.token("\n", Nil) |> lexer.ignore(),
         lexer.whitespace(Nil) |> lexer.ignore(),
+      ]
+      AttrValue(quote:) -> [
+        lexer.identifier(
+          "[^<&" <> quote <> "]",
+          "[^<&" <> quote <> "]",
+          set.new(),
+          Text,
+        ),
+        lexer.token(quote, Quote(quote)) |> lexer.into(fn(_) { StartTag }),
       ]
       EndTag -> [
         lexer.token(">", TagClose) |> lexer.into(fn(_) { Content }),
@@ -45,26 +70,10 @@ pub fn lexer() {
         lexer.identifier("[^\\-]", "[^\\-]", set.new(), Text),
         lexer.keyword("-", "[^-]", Text("-")),
       ]
-      Content -> [
-        lexer.token("<!--", CommentStart) |> lexer.into(fn(_) { Comment }),
-        name_with_prefix("</")
-          |> lexer.map(fn(name) { TagEnd(name:) })
-          |> lexer.into(fn(_) { EndTag }),
-        name_with_prefix("<")
-          |> lexer.map(fn(name) { TagOpen(name:) })
-          |> lexer.into(fn(_) { StartTag }),
-        lexer.whitespace(Nil) |> lexer.ignore(),
-        lexer.token("\n", Nil) |> lexer.ignore(),
-        lexer.identifier("[^<&]", "[^<&]", set.new(), Text),
-      ]
-      AttrValue(quote:) -> [
-        lexer.identifier(
-          "[^<&" <> quote <> "]",
-          "[^<&" <> quote <> "]",
-          set.new(),
-          Text,
-        ),
-        lexer.token(quote, Quote(quote)) |> lexer.into(fn(_) { StartTag }),
+      CDATA -> [
+        lexer.token("]]>", CDATAClose) |> lexer.into(fn(_) { Content }),
+        lexer.identifier("[^\\]]", "[^\\]]", set.new(), Text),
+        lexer.identifier("\\]", "[\\]>]", set.from_list(["]]>"]), Text),
       ]
     }
   })
@@ -100,5 +109,7 @@ pub fn print_token(tok: XmlToken) -> String {
     Quote(quote:) -> quote
     CommentEnd -> "-->"
     CommentStart -> "<!--"
+    CDATAClose -> "]]>"
+    CDATAOpen -> "<![CDATA["
   }
 }

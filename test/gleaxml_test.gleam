@@ -130,3 +130,12 @@ pub fn quote_in_attribute_value_test() {
   assert attrs == dict.from_list([#("attr", "Value with \"quotes\"")])
   assert children == []
 }
+
+pub fn cdata_section_test() {
+  let xml = "<data><![CDATA[Some <unescaped> & data]]></data>"
+
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "data"
+  assert children == [parser.Text("Some <unescaped> & data")]
+}
