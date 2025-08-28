@@ -13,17 +13,26 @@ pub type XmlNode {
     children: List(XmlNode),
   )
   Text(content: String)
+  Comment(content: String)
 }
 
 fn tag() -> nibble.Parser(XmlNode, lexer.XmlToken, b) {
-  use _ <- nibble.do(nibble.token(lexer.TagOpen))
-  use name <- nibble.do(tag_name())
+  use name <- nibble.do(tag_open())
   use attrs <- nibble.do(attributes())
   use children <- nibble.do(
     nibble.one_of([simple_tag(name), self_closing_tag()]),
   )
 
   nibble.return(Element(name:, attrs:, children:))
+}
+
+fn tag_open() -> nibble.Parser(String, lexer.XmlToken, h) {
+  use tok <- nibble.take_map("an opening tag")
+
+  case tok {
+    lexer.TagOpen(name) -> option.Some(name)
+    _ -> option.None
+  }
 }
 
 fn text_content() -> nibble.Parser(XmlNode, lexer.XmlToken, e) {
@@ -38,25 +47,16 @@ fn text_content() -> nibble.Parser(XmlNode, lexer.XmlToken, e) {
 fn simple_tag(name: String) -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
   use _ <- nibble.do(nibble.token(lexer.TagClose))
 
-  use children <- nibble.do(children_and_end(name))
+  use children <- nibble.do(children())
+  use _ <- nibble.do(tag_end(name))
 
   nibble.return(children)
 }
 
 fn self_closing_tag() -> nibble.Parser(List(XmlNode), lexer.XmlToken, d) {
-  use _ <- nibble.do(nibble.token(lexer.TagEnd))
-  use _ <- nibble.do(nibble.token(lexer.TagClose))
+  use _ <- nibble.do(nibble.token(lexer.TagSelfClose))
 
   nibble.return([])
-}
-
-fn tag_name() -> nibble.Parser(String, lexer.XmlToken, a) {
-  use tok <- nibble.take_map("a tag name")
-
-  case tok {
-    lexer.Text(name) -> option.Some(name)
-    _ -> option.None
-  }
 }
 
 fn attributes() -> nibble.Parser(dict.Dict(String, String), lexer.XmlToken, a) {
@@ -66,7 +66,7 @@ fn attributes() -> nibble.Parser(dict.Dict(String, String), lexer.XmlToken, a) {
   case attr {
     option.Some(a) -> {
       case dict.has_key(state, a.0) {
-        True -> nibble.fail("Duplicate attribute name")
+        True -> nibble.fail("Duplicate attribute name: " <> a.0)
         False ->
           nibble.Continue(state |> dict.insert(a.0, a.1)) |> nibble.return
       }
@@ -92,58 +92,75 @@ fn attribute_name() -> nibble.Parser(String, lexer.XmlToken, a) {
 }
 
 fn attribute_value() -> nibble.Parser(String, lexer.XmlToken, a) {
-  let single_quote_value =
-    tokens_between(lexer.SingleQuote, lexer.SingleQuote)
-    |> nibble.map(fn(tokens) {
-      tokens
-      |> list.map(lexer.print_token)
-      |> string.join("")
-    })
-  let double_quote_value =
-    tokens_between(lexer.DoubleQuote, lexer.DoubleQuote)
-    |> nibble.map(fn(tokens) {
-      tokens
-      |> list.map(lexer.print_token)
-      |> string.join("")
-    })
-  nibble.one_of([single_quote_value, double_quote_value])
+  use start_quote <- nibble.do(
+    nibble.one_of([
+      nibble.token(lexer.Quote("'")) |> nibble.replace("'"),
+      nibble.token(lexer.Quote("\"")) |> nibble.replace("\""),
+    ]),
+  )
+  use value <- nibble.do(
+    nibble.take_map("an attribute value", fn(tok) {
+      case tok {
+        lexer.Text(v) -> option.Some(v)
+        _ -> option.None
+      }
+    }),
+  )
+  use end_quote <- nibble.do(
+    nibble.one_of([
+      nibble.token(lexer.Quote("'")) |> nibble.replace("'"),
+      nibble.token(lexer.Quote("\"")) |> nibble.replace("\""),
+    ]),
+  )
+
+  case start_quote == end_quote {
+    True -> nibble.return(value)
+    False -> nibble.fail("Expected " <> start_quote <> ", got " <> end_quote)
+  }
 }
 
-fn tokens_between(
-  start: lexer.XmlToken,
-  end: lexer.XmlToken,
-) -> nibble.Parser(List(lexer.XmlToken), lexer.XmlToken, a) {
-  use _ <- nibble.do(nibble.token(start))
-  use tokens <- nibble.do(nibble.take_until(fn(tok) { tok == end }))
-  use _ <- nibble.do(nibble.token(end))
-  nibble.return(tokens)
-}
+// fn tokens_between(
+//   start: lexer.XmlToken,
+//   end: lexer.XmlToken,
+// ) -> nibble.Parser(List(lexer.XmlToken), lexer.XmlToken, a) {
+//   use _ <- nibble.do(nibble.token(start))
+//   use tokens <- nibble.do(nibble.take_until(fn(tok) { tok == end }))
+//   use _ <- nibble.do(nibble.token(end))
+//   nibble.return(tokens)
+// }
 
-fn children_and_end(
-  parent_name: String,
-) -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
+fn children() -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
   use state <- nibble.loop([])
   use el <- nibble.do(
-    nibble.one_of([
-      nibble.backtrackable(tag_end(parent_name)) |> nibble.replace(option.None),
-      tag() |> nibble.map(option.Some),
-      text_content() |> nibble.map(option.Some),
-    ]),
+    nibble.optional(nibble.one_of([tag(), text_content(), comment()])),
   )
 
   case el {
     option.Some(a) -> nibble.Continue([a, ..state]) |> nibble.return
-    option.None -> nibble.Break(state) |> nibble.return
+    option.None -> nibble.Break(state |> list.reverse) |> nibble.return
   }
 }
 
 fn tag_end(name: String) -> nibble.Parser(Nil, lexer.XmlToken, g) {
-  use _ <- nibble.do(nibble.token(lexer.TagOpen))
-  use _ <- nibble.do(nibble.token(lexer.TagEnd))
-  use _ <- nibble.do(nibble.token(lexer.Text(name)))
+  use _ <- nibble.do(nibble.token(lexer.TagEnd(name:)))
   use _ <- nibble.do(nibble.token(lexer.TagClose))
 
   nibble.return(Nil)
+}
+
+fn comment() {
+  use _ <- nibble.do(nibble.token(lexer.CommentStart))
+  use values <- nibble.do(
+    nibble.take_map_while(fn(tok) {
+      case tok {
+        lexer.Text(v) -> option.Some(v)
+        _ -> option.None
+      }
+    }),
+  )
+  use _ <- nibble.do(nibble.token(lexer.CommentEnd))
+
+  nibble.return(Comment(string.join(values, "")))
 }
 
 pub fn parser() {
