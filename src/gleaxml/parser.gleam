@@ -8,6 +8,15 @@ import gleaxml/lexer
 import nibble
 import nibble/lexer as nlexer
 
+pub type XmlDocument {
+  XmlDocument(
+    version: String,
+    encoding: String,
+    standalone: Bool,
+    root_element: XmlNode,
+  )
+}
+
 pub type XmlNode {
   Element(
     name: String,
@@ -226,16 +235,63 @@ fn cdata() -> nibble.Parser(XmlNode, lexer.XmlToken, j) {
   nibble.return(Text(string.join(values, "")))
 }
 
-pub fn parser() -> nibble.Parser(XmlNode, lexer.XmlToken, i) {
+fn xml_declaration() -> nibble.Parser(
+  #(String, option.Option(String), option.Option(Bool)),
+  lexer.XmlToken,
+  n,
+) {
+  use _ <- nibble.do(nibble.token(lexer.XmlDeclarationStart))
+  use attrs <- nibble.do(attributes())
+  use _ <- nibble.do(nibble.token(lexer.XmlDeclarationEnd))
+
+  let attr_list = dict.to_list(attrs)
+  let #(version, attr_list) = pop_attr(attr_list, "version")
+  let #(encoding, attr_list) = pop_attr(attr_list, "encoding")
+  let #(standalone, attr_list) = pop_attr(attr_list, "standalone")
+
+  case version, attr_list {
+    option.None, _ -> nibble.fail("Version is required")
+    _, [el, ..] -> nibble.fail("Incorrect attribute: " <> el.0)
+    option.Some(v), [] ->
+      nibble.return(#(
+        v,
+        encoding,
+        standalone |> option.map(fn(s) { s == "yes" }),
+      ))
+  }
+}
+
+fn pop_attr(
+  attrs: List(#(String, String)),
+  attr: String,
+) -> #(option.Option(String), List(#(String, String))) {
+  case list.key_pop(attrs, attr) {
+    Error(Nil) -> #(option.None, attrs)
+    Ok(#(value, new_attrs)) -> #(option.Some(value), new_attrs)
+  }
+}
+
+pub fn parser() -> nibble.Parser(XmlDocument, lexer.XmlToken, i) {
+  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
+  use xml_decl_info <- nibble.do(nibble.optional(xml_declaration()))
   use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
   use node <- nibble.do(tag())
   use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
 
-  nibble.return(node)
+  case xml_decl_info {
+    option.None -> nibble.return(XmlDocument("1.0", "UTF-8", True, node))
+    option.Some(#(v, e, s)) ->
+      nibble.return(XmlDocument(
+        v,
+        e |> option.unwrap("UTF-8"),
+        s |> option.unwrap(True),
+        node,
+      ))
+  }
 }
 
 pub fn parse(
   tokens: List(nlexer.Token(lexer.XmlToken)),
-) -> Result(XmlNode, List(nibble.DeadEnd(lexer.XmlToken, f))) {
+) -> Result(XmlDocument, List(nibble.DeadEnd(lexer.XmlToken, f))) {
   nibble.run(tokens, parser())
 }
