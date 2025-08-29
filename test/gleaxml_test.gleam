@@ -46,12 +46,17 @@ pub fn simple_xml_test() {
 
   assert children
     == [
+      parser.Text(" "),
       parser.Element("to", dict.new(), [parser.Text("Tove")]),
+      parser.Text(" "),
       parser.Element("from", dict.new(), [parser.Text("Jani")]),
+      parser.Text(" "),
       parser.Element("heading", dict.new(), [parser.Text("Reminder")]),
+      parser.Text(" "),
       parser.Element("body", dict.new(), [
         parser.Text("Don't forget me this weekend!"),
       ]),
+      parser.Text(" "),
     ]
 }
 
@@ -138,4 +143,62 @@ pub fn cdata_section_test() {
   let assert parser.Element(name, _attrs, children) = node
   assert name == "data"
   assert children == [parser.Text("Some <unescaped> & data")]
+}
+
+pub fn cdata_with_brackets_test() {
+  let xml = "<data><![CDATA[Some ]] tricky data]]></data>"
+
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "data"
+  assert children == [parser.Text("Some ]] tricky data")]
+}
+
+pub fn entity_reference_test() {
+  let xml = "<text>this is a &quot;quoted&quot; text</text>"
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [parser.Text("this is a \"quoted\" text")]
+}
+
+pub fn char_reference_test() {
+  let xml = "<text>&#91; a &#x5c; b &#93;</text>"
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [parser.Text("[ a \\ b ]")]
+}
+
+pub fn text_with_newlines_test() {
+  let xml =
+    "<text>this
+  is a
+  multiline
+  text</text>"
+
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [parser.Text("this is a multiline text")]
+}
+
+pub fn multiline_content_test() {
+  let xml =
+    "
+<parent>
+  Test
+  <child>hello</child>
+</parent>
+  "
+
+  let assert Ok(node) = gleaxml.parse(xml)
+  let assert parser.Element(name, _attrs, children) = node
+  assert name == "parent"
+  assert children
+    == [
+      parser.Text(" Test "),
+      parser.Element("child", dict.new(), [parser.Text("hello")]),
+      parser.Text(" "),
+    ]
 }

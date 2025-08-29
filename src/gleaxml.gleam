@@ -33,7 +33,7 @@ fn print_lexer_error(err: nlexer.Error) -> String {
 fn print_parser_error(errs: List(nibble.DeadEnd(lexer.XmlToken, a))) -> String {
   {
     use deadend <- list.map(errs)
-    "At position "
+    "Parser error at position "
     <> deadend.pos.row_start |> int.to_string()
     <> ":"
     <> deadend.pos.col_start |> int.to_string()

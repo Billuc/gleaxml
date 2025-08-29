@@ -14,6 +14,11 @@ pub type XmlToken {
   Quote(quote: String)
   CDATAOpen
   CDATAClose
+  ReferenceStart
+  ReferenceName(name: String)
+  ReferenceCode(code: String)
+  ReferenceHexCode(code: String)
+  ReferenceEnd
 }
 
 pub type Mode {
@@ -23,6 +28,7 @@ pub type Mode {
   Comment
   AttrValue(quote: String)
   CDATA
+  Reference(parent: Mode)
 }
 
 pub fn lexer() {
@@ -37,9 +43,10 @@ pub fn lexer() {
         name_with_prefix("<")
           |> lexer.map(fn(name) { TagOpen(name:) })
           |> lexer.into(fn(_) { StartTag }),
-        lexer.whitespace(Nil) |> lexer.ignore(),
-        lexer.token("\n", Nil) |> lexer.ignore(),
-        lexer.identifier("[^<&]", "[^<&]", set.new(), Text),
+        lexer.identifier("[\\r]?[\\n]", "[\\s]", set.new(), fn(_) { Text(" ") }),
+        lexer.whitespace(Text(" ")),
+        lexer.identifier("[^<&]", "[^<&\\n]", set.new(), Text),
+        lexer.token("&", ReferenceStart) |> lexer.into(Reference),
       ]
       StartTag -> [
         lexer.token("=", Equals),
@@ -49,6 +56,7 @@ pub fn lexer() {
         lexer.token("\"", Quote("\"")) |> lexer.into(fn(_) { AttrValue("\"") }),
         name_matcher() |> lexer.map(fn(name) { Text(name) }),
         lexer.token("\n", Nil) |> lexer.ignore(),
+        lexer.token("\r", Nil) |> lexer.ignore(),
         lexer.whitespace(Nil) |> lexer.ignore(),
       ]
       AttrValue(quote:) -> [
@@ -59,6 +67,7 @@ pub fn lexer() {
           Text,
         ),
         lexer.token(quote, Quote(quote)) |> lexer.into(fn(_) { StartTag }),
+        lexer.token("&", ReferenceStart) |> lexer.into(Reference),
       ]
       EndTag -> [
         lexer.token(">", TagClose) |> lexer.into(fn(_) { Content }),
@@ -74,6 +83,21 @@ pub fn lexer() {
         lexer.token("]]>", CDATAClose) |> lexer.into(fn(_) { Content }),
         lexer.identifier("[^\\]]", "[^\\]]", set.new(), Text),
         lexer.identifier("\\]", "[\\]>]", set.from_list(["]]>"]), Text),
+      ]
+      Reference(parent:) -> [
+        lexer.identifier("#x[a-fA-F0-9]", "[a-fA-F0-9]", set.new(), fn(s) {
+          ReferenceHexCode(s |> string.drop_start(2))
+        }),
+        lexer.identifier("#[0-9]", "[0-9]", set.new(), fn(s) {
+          ReferenceCode(s |> string.drop_start(1))
+        }),
+        lexer.identifier(
+          "[a-zA-Z_:]",
+          "[a-zA-Z_:0-9.\\-]",
+          set.new(),
+          ReferenceName,
+        ),
+        lexer.token(";", ReferenceEnd) |> lexer.into(fn(_) { parent }),
       ]
     }
   })
@@ -111,5 +135,10 @@ pub fn print_token(tok: XmlToken) -> String {
     CommentStart -> "<!--"
     CDATAClose -> "]]>"
     CDATAOpen -> "<![CDATA["
+    ReferenceEnd -> ";"
+    ReferenceStart -> "&"
+    ReferenceCode(code:) -> "#" <> code
+    ReferenceHexCode(code:) -> "#x" <> code
+    ReferenceName(name:) -> name
   }
 }

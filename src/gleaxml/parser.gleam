@@ -1,6 +1,8 @@
 import gleam/dict
+import gleam/int
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
 import gleaxml/lexer
 import nibble
@@ -35,13 +37,68 @@ fn tag_open() -> nibble.Parser(String, lexer.XmlToken, h) {
   }
 }
 
-fn text_content() -> nibble.Parser(XmlNode, lexer.XmlToken, e) {
+fn text() -> nibble.Parser(XmlNode, lexer.XmlToken, m) {
+  {
+    use texts <- nibble.loop([])
+    use s <- nibble.do(
+      nibble.optional(nibble.one_of([text_content(), reference()])),
+    )
+
+    case s, texts {
+      option.None, [] -> nibble.fail("No text")
+      option.None, _ -> nibble.Break(texts |> list.reverse) |> nibble.return
+      option.Some(t), _ -> nibble.Continue([t, ..texts]) |> nibble.return
+    }
+  }
+  |> nibble.then(fn(texts) {
+    let content = texts |> string.join("")
+    nibble.return(Text(content))
+  })
+}
+
+fn text_content() -> nibble.Parser(String, lexer.XmlToken, e) {
   use tok <- nibble.take_map("text content")
 
   case tok {
-    lexer.Text(content) -> option.Some(Text(content))
+    lexer.Text(content) -> option.Some(content)
     _ -> option.None
   }
+}
+
+fn reference() -> nibble.Parser(String, lexer.XmlToken, l) {
+  use _ <- nibble.do(nibble.token(lexer.ReferenceStart))
+  use reftext <- nibble.do(
+    nibble.take_map("a reference", fn(tok) {
+      case tok {
+        lexer.ReferenceHexCode(code:) ->
+          code
+          |> int.base_parse(16)
+          |> result.try(string.utf_codepoint)
+          |> result.map(fn(code) {
+            string.from_utf_codepoints([code]) |> option.Some
+          })
+          |> result.unwrap(option.None)
+        lexer.ReferenceCode(code:) ->
+          code
+          |> int.base_parse(10)
+          |> result.try(string.utf_codepoint)
+          |> result.map(fn(code) {
+            string.from_utf_codepoints([code]) |> option.Some
+          })
+          |> result.unwrap(option.None)
+        lexer.ReferenceName("amp") -> option.Some("&")
+        lexer.ReferenceName("quot") -> option.Some("\"")
+        lexer.ReferenceName("apos") -> option.Some("'")
+        lexer.ReferenceName("lt") -> option.Some("<")
+        lexer.ReferenceName("gt") -> option.Some(">")
+        lexer.ReferenceName(name) -> option.Some("&" <> name <> ";")
+        _ -> option.None
+      }
+    }),
+  )
+  use _ <- nibble.do(nibble.token(lexer.ReferenceEnd))
+
+  nibble.return(reftext)
 }
 
 fn simple_tag(name: String) -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
@@ -122,7 +179,7 @@ fn attribute_value() -> nibble.Parser(String, lexer.XmlToken, a) {
 fn children() -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
   use state <- nibble.loop([])
   use el <- nibble.do(
-    nibble.optional(nibble.one_of([tag(), text_content(), comment(), cdata()])),
+    nibble.optional(nibble.one_of([tag(), text(), comment(), cdata()])),
   )
 
   case el {
@@ -132,6 +189,7 @@ fn children() -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
 }
 
 fn tag_end(name: String) -> nibble.Parser(Nil, lexer.XmlToken, g) {
+  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
   use _ <- nibble.do(nibble.token(lexer.TagEnd(name:)))
   use _ <- nibble.do(nibble.token(lexer.TagClose))
 
@@ -169,7 +227,11 @@ fn cdata() -> nibble.Parser(XmlNode, lexer.XmlToken, j) {
 }
 
 pub fn parser() -> nibble.Parser(XmlNode, lexer.XmlToken, i) {
-  tag()
+  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
+  use node <- nibble.do(tag())
+  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
+
+  nibble.return(node)
 }
 
 pub fn parse(
