@@ -106,6 +106,17 @@ fn do_get_nodes(
   }
 }
 
+pub fn get_node(
+  root: parser.XmlNode,
+  path: List(String),
+) -> Result(parser.XmlNode, String) {
+  let nodes = get_nodes(root, path)
+  case nodes {
+    [node, ..] -> Ok(node)
+    [] -> Error("No node found at path " <> string.join(path, "/"))
+  }
+}
+
 pub fn get_attribute(
   node: parser.XmlNode,
   name: String,
@@ -120,17 +131,35 @@ pub fn get_attribute(
   }
 }
 
-pub fn get_text(node: parser.XmlNode) -> List(String) {
+pub fn get_texts(node: parser.XmlNode) -> List(String) {
   case node {
     parser.Element(_, _, children) ->
       children
       |> list.filter_map(fn(child) {
         case child {
-          parser.Text(text) -> Ok(text)
+          parser.Text(content) -> Ok(content)
           _ -> Error(Nil)
         }
       })
-    parser.Comment(comment) -> [comment]
-    parser.Text(content:) -> [content]
+    _ -> []
+  }
+}
+
+pub fn get_nonempty_texts(node: parser.XmlNode) -> List(String) {
+  get_texts(node)
+  |> list.filter(fn(text) { string.trim(text) != "" })
+}
+
+pub fn get_comments(node: parser.XmlNode) -> List(String) {
+  case node {
+    parser.Element(_, _, children) ->
+      children
+      |> list.filter_map(fn(child) {
+        case child {
+          parser.Comment(content) -> Ok(content)
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
   }
 }
