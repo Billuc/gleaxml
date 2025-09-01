@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/list
 import gleaxml
 import gleaxml/parser
 import gleeunit
@@ -203,4 +204,26 @@ pub fn multiline_content_test() {
       parser.Element("child", dict.new(), [parser.Text("hello")]),
       parser.Text(" "),
     ]
+}
+
+pub fn get_node_test() {
+  let xml =
+    "<root><child id=\"1\">First</child><child id=\"2\">Second</child></root>"
+  let assert Ok(parser.XmlDocument(_, _, _, root)) = gleaxml.parse(xml)
+
+  let nodes = gleaxml.get_nodes(root, ["root", "child"])
+  assert nodes |> list.length() == 2
+
+  let assert Ok(first_child) = list.first(nodes)
+  let assert Ok(second_child) = list.last(nodes)
+
+  let assert Ok(id1) = gleaxml.get_attribute(first_child, "id")
+  let assert Ok(id2) = gleaxml.get_attribute(second_child, "id")
+  assert id1 == "1"
+  assert id2 == "2"
+
+  let texts1 = gleaxml.get_text(first_child)
+  let texts2 = gleaxml.get_text(second_child)
+  assert texts1 == ["First"]
+  assert texts2 == ["Second"]
 }

@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/result
@@ -52,5 +53,84 @@ fn print_nibble_error(err: nibble.Error(lexer.XmlToken)) -> String {
       "Expected " <> expected <> ", got " <> lexer.print_token(got)
     nibble.Unexpected(unexpected) ->
       "Unexpected token: " <> lexer.print_token(unexpected)
+  }
+}
+
+pub fn get_nodes(
+  root: parser.XmlNode,
+  path: List(String),
+) -> List(parser.XmlNode) {
+  case path, root {
+    [name, ..rest], parser.Element(n, _, _) if n == name ->
+      do_get_nodes(rest, [root])
+    _, _ -> []
+  }
+}
+
+fn do_get_nodes(
+  path: List(String),
+  nodes: List(parser.XmlNode),
+) -> List(parser.XmlNode) {
+  case path {
+    [] -> nodes
+    ["*", ..rest] -> {
+      let children =
+        nodes
+        |> list.flat_map(fn(node) {
+          case node {
+            parser.Element(_, _, children) -> children
+            _ -> []
+          }
+        })
+      do_get_nodes(rest, children)
+    }
+    [name, ..rest] -> {
+      let children =
+        nodes
+        |> list.flat_map(fn(node) {
+          case node {
+            parser.Element(_, _, children) -> {
+              children
+              |> list.filter_map(fn(child) {
+                case child {
+                  parser.Element(n, _, _) if n == name -> Ok(child)
+                  _ -> Error(Nil)
+                }
+              })
+            }
+            _ -> []
+          }
+        })
+      do_get_nodes(rest, children)
+    }
+  }
+}
+
+pub fn get_attribute(
+  node: parser.XmlNode,
+  name: String,
+) -> Result(String, String) {
+  case node {
+    parser.Element(_, attrs, _) -> {
+      attrs
+      |> dict.get(name)
+      |> result.replace_error("No attribute with name " <> name)
+    }
+    _ -> Error("Node is not an element")
+  }
+}
+
+pub fn get_text(node: parser.XmlNode) -> List(String) {
+  case node {
+    parser.Element(_, _, children) ->
+      children
+      |> list.filter_map(fn(child) {
+        case child {
+          parser.Text(text) -> Ok(text)
+          _ -> Error(Nil)
+        }
+      })
+    parser.Comment(comment) -> [comment]
+    parser.Text(content:) -> [content]
   }
 }
