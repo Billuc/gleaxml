@@ -1,165 +1,198 @@
+import gleam/bool
 import gleam/dict
-import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
-import gleaxml/lexer
-import gleaxml/parser
-import nibble
-import nibble/lexer as nlexer
+import splitter
 
-pub fn parse(input: String) {
-  use tokens <- result.try(
-    lexer.get_tokens(input) |> result.map_error(print_lexer_error),
+pub type Parser {
+  Parser(input: String, remaining: String, splitters: Splitters, mode: Mode)
+}
+
+pub type XmlToken {
+  TagOpen(name: String)
+  TagClose
+  TagSelfClose
+  TagEnd(name: String)
+  Text(String)
+  Equals
+  CommentStart
+  CommentEnd
+  Quote(quote: String)
+  CDATAOpen
+  CDATAClose
+  ReferenceStart
+  ReferenceName(name: String)
+  ReferenceCode(code: String)
+  ReferenceHexCode(code: String)
+  ReferenceEnd
+  XmlDeclarationStart
+  XmlDeclarationEnd
+}
+
+pub type Mode {
+  StartTag
+  EndTag
+  // Content
+  // Comment
+  AttrValue(quote: String, parent: Mode)
+  // CDATA
+  // Reference(parent: Mode)
+  // XmlDecl
+}
+
+pub type XmlDocument {
+  XmlDocument(
+    version: String,
+    encoding: String,
+    standalone: Bool,
+    root_element: XmlNode,
   )
-  use xml_node <- result.try(
-    parser.parse(tokens) |> result.map_error(print_parser_error),
+}
+
+pub type XmlNode {
+  Element(
+    name: String,
+    attrs: dict.Dict(String, String),
+    children: List(XmlNode),
   )
-  Ok(xml_node)
+  // Text(content: String)
+  // Comment(content: String)
 }
 
-fn print_lexer_error(err: nlexer.Error) -> String {
-  case err {
-    nlexer.NoMatchFound(row:, col:, lexeme:) ->
-      "Lexer error at row "
-      <> row |> int.to_string()
-      <> ", column "
-      <> col |> int.to_string()
-      <> ": No match found for '"
-      <> lexeme
-      <> "'"
+pub type Splitters {
+  Splitters(
+    start_tag_splitter: splitter.Splitter,
+    end_tag_splitter: splitter.Splitter,
+    attr_value_splitter: splitter.Splitter,
+  )
+}
+
+fn parse(parser: Parser) {
+  todo
+}
+
+fn parse_start_tag(parser: Parser) {
+  let parser = drop_newlines_and_whitespaces(parser)
+  use tag_name, parser <- expect(parser, " ")
+  todo
+}
+
+fn parse_attributes(input: String, splitters: Splitters) {
+  todo
+}
+
+fn parse_attribute(parser: Parser) {
+  let parser = parser |> drop_newlines_and_whitespaces
+
+  use attr_name, parser <- expect(parser, "=")
+  use _, quote, parser <- expect_one_of(parser, ["\"", "'"])
+
+  let parser = parser |> into(AttrValue(quote:, parent: parser.mode))
+
+  use #(attr_value, parser) <- result.try(split_while_not(parser, quote))
+  todo
+}
+
+fn start_tag_splitter() {
+  splitter.new(["/>", ">", "=", "\"", "'", "\r", "\n", " "])
+}
+
+fn end_tag_splitter() {
+  splitter.new([">", "\r", " ", "\n"])
+}
+
+fn content_splitter() {
+  splitter.new(["</", "<"])
+}
+
+fn drop_newlines(parser: Parser) -> Parser {
+  case parser.remaining {
+    "\n" <> rest -> drop_newlines(Parser(..parser, remaining: rest))
+    "\r\n" <> rest -> drop_newlines(Parser(..parser, remaining: rest))
+    _ -> parser
   }
 }
 
-fn print_parser_error(errs: List(nibble.DeadEnd(lexer.XmlToken, a))) -> String {
-  {
-    use deadend <- list.map(errs)
-    "Parser error at position "
-    <> deadend.pos.row_start |> int.to_string()
-    <> ":"
-    <> deadend.pos.col_start |> int.to_string()
-    <> ": "
-    <> print_nibble_error(deadend.problem)
-  }
-  |> string.join("\n")
-}
-
-fn print_nibble_error(err: nibble.Error(lexer.XmlToken)) -> String {
-  case err {
-    nibble.BadParser(parser) -> "Bad parser: " <> parser
-    nibble.Custom(err) -> err
-    nibble.EndOfInput -> "Unexpected end of input"
-    nibble.Expected(expected, got:) ->
-      "Expected " <> expected <> ", got " <> lexer.print_token(got)
-    nibble.Unexpected(unexpected) ->
-      "Unexpected token: " <> lexer.print_token(unexpected)
+fn drop_whitespaces(parser: Parser) -> Parser {
+  case parser.remaining {
+    " " <> rest -> drop_whitespaces(Parser(..parser, remaining: rest))
+    _ -> parser
   }
 }
 
-pub fn get_nodes(
-  root: parser.XmlNode,
-  path: List(String),
-) -> List(parser.XmlNode) {
-  case path, root {
-    [name, ..rest], parser.Element(n, _, _) if n == name ->
-      do_get_nodes(rest, [root])
-    _, _ -> []
+fn drop_newlines_and_whitespaces(parser: Parser) -> Parser {
+  case parser.remaining {
+    "\n" <> rest ->
+      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
+    "\r\n" <> rest ->
+      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
+    " " <> rest ->
+      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
+    _ -> parser
   }
 }
 
-fn do_get_nodes(
-  path: List(String),
-  nodes: List(parser.XmlNode),
-) -> List(parser.XmlNode) {
-  case path {
-    [] -> nodes
-    ["*", ..rest] -> {
-      let children =
-        nodes
-        |> list.flat_map(fn(node) {
-          case node {
-            parser.Element(_, _, children) -> children
-            _ -> []
-          }
-        })
-      do_get_nodes(rest, children)
-    }
-    [name, ..rest] -> {
-      let children =
-        nodes
-        |> list.flat_map(fn(node) {
-          case node {
-            parser.Element(_, _, children) -> {
-              children
-              |> list.filter_map(fn(child) {
-                case child {
-                  parser.Element(n, _, _) if n == name -> Ok(child)
-                  _ -> Error(Nil)
-                }
-              })
-            }
-            _ -> []
-          }
-        })
-      do_get_nodes(rest, children)
-    }
+fn expect(
+  parser: Parser,
+  expected_split: String,
+  then: fn(String, Parser) -> Result(a, Nil),
+) {
+  let splitter = get_splitter(parser)
+  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
+
+  case delim {
+    d if d == expected_split -> then(before, Parser(..parser, remaining: after))
+    _ -> Error(Nil)
   }
 }
 
-pub fn get_node(
-  root: parser.XmlNode,
-  path: List(String),
-) -> Result(parser.XmlNode, String) {
-  let nodes = get_nodes(root, path)
-  case nodes {
-    [node, ..] -> Ok(node)
-    [] -> Error("No node found at path " <> string.join(path, "/"))
+fn expect_one_of(
+  parser: Parser,
+  expected_splits: List(String),
+  then: fn(String, String, Parser) -> Result(a, Nil),
+) {
+  let splitter = get_splitter(parser)
+  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
+
+  use <- bool.guard(!list.contains(expected_splits, delim), Error(Nil))
+
+  then(before, delim, Parser(..parser, remaining: after))
+}
+
+fn get_splitter(parser: Parser) -> splitter.Splitter {
+  case parser.mode {
+    AttrValue(quote:, parent:) -> parser.splitters.attr_value_splitter
+    // CDATA -> todo
+    // Comment -> todo
+    // Content -> todo
+    EndTag -> parser.splitters.end_tag_splitter
+    // Reference(parent:) -> todo
+    StartTag -> parser.splitters.start_tag_splitter
+    // XmlDecl -> todo
   }
 }
 
-pub fn get_attribute(
-  node: parser.XmlNode,
-  name: String,
-) -> Result(String, String) {
-  case node {
-    parser.Element(_, attrs, _) -> {
-      attrs
-      |> dict.get(name)
-      |> result.replace_error("No attribute with name " <> name)
-    }
-    _ -> Error("Node is not an element")
-  }
+fn into(parser: Parser, mode: Mode) -> Parser {
+  Parser(..parser, mode:)
 }
 
-pub fn get_texts(node: parser.XmlNode) -> List(String) {
-  case node {
-    parser.Element(_, _, children) ->
-      children
-      |> list.filter_map(fn(child) {
-        case child {
-          parser.Text(content) -> Ok(content)
-          _ -> Error(Nil)
-        }
-      })
-    _ -> []
-  }
+fn split(parser: Parser) {
+  let splitter = get_splitter(parser)
+  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
+  #(before, delim, Parser(..parser, remaining: after))
 }
 
-pub fn get_nonempty_texts(node: parser.XmlNode) -> List(String) {
-  get_texts(node)
-  |> list.filter(fn(text) { string.trim(text) != "" })
+fn split_while_not(parser: Parser, stopper: String) {
+  do_split_while_not(parser, stopper, "")
 }
 
-pub fn get_comments(node: parser.XmlNode) -> List(String) {
-  case node {
-    parser.Element(_, _, children) ->
-      children
-      |> list.filter_map(fn(child) {
-        case child {
-          parser.Comment(content) -> Ok(content)
-          _ -> Error(Nil)
-        }
-      })
-    _ -> []
+fn do_split_while_not(parser: Parser, stopper: String, accumulator: String) {
+  let #(before, delim, parser) = split(parser)
+
+  case delim {
+    d if d == stopper -> Ok(#(accumulator <> before, parser))
+    "" -> Error(Nil)
+    _ -> do_split_while_not(parser, stopper, accumulator <> before <> delim)
   }
 }
