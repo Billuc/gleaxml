@@ -26,15 +26,17 @@ pub type Document
 
 pub fn parse(input: String) -> Result(XmlDocument, String) {
   use doc <- result.try(parse_document(input))
+  echo doc
   use xmldoc <- result.try(to_xml_document(doc))
   Ok(XmlDocument(..xmldoc, root_element: fix_text(xmldoc.root_element)))
 }
 
 @external(erlang, "gleaxml_ffi", "parse")
-@external(javascript, "./gleaxml_ffi.mjs", "parseFromString")
+@external(javascript, "./gleaxml_ffi.mjs", "parse")
 fn parse_document(input: String) -> Result(Document, String)
 
 @external(erlang, "gleaxml_ffi", "to_document")
+@external(javascript, "./gleaxml_ffi.mjs", "toDocument")
 fn to_xml_document(doc: Document) -> Result(XmlDocument, String)
 
 fn fix_text(node: XmlNode) -> XmlNode {
