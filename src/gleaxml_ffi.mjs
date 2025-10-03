@@ -1,4 +1,5 @@
 import { Ok, Error, List } from "./gleam.mjs";
+import Dict from "../gleam_stdlib/dict.mjs";
 import { JSDOM } from "jsdom";
 
 function newDomParser() {
@@ -17,16 +18,16 @@ export function parse(string) {
   if (errorNode) {
     return new Error(errorNode.textContent);
   }
-  return new Ok(document);
+  return new Ok(toXmlDocument(document));
 }
 
-export function toDocument(xml) {
-  return new Ok({
+function toXmlDocument(xml) {
+  return {
     version: "1.0",
     standalone: true,
     encoding: "UTF-8",
     root_element: toElement(getRootElement(xml)),
-  });
+  };
 }
 
 function getRootElement(document) {
@@ -37,21 +38,31 @@ function toElement(element) {
   if (element.nodeType === 3) {
     // TEXT NODE
     return {
+      type: "text",
       content: element.textContent,
     };
   }
   if (element.nodeType === 8) {
     // COMMENT NODE
     return {
+      type: "comment",
       content: element.textContent,
     };
   }
   if (element.nodeType === 1) {
     // ELEMENT NODE
     return {
+      type: "element",
       tag_name: getTagName(element),
       attributes: getAttributes(element),
       children: getChildren(element),
+    };
+  }
+  if (element.nodeType === 4) {
+    // CDATA SECTION NODE
+    return {
+      type: "text",
+      content: element.textContent,
     };
   }
 
@@ -70,9 +81,9 @@ function getTagName(element) {
 }
 
 function getAttributes(element) {
-  const attributeKeyValuePairs = Array.from(element.attributes).map((attr) => [
-    attr.name,
-    attr.value,
-  ]);
-  return List.fromArray(attributeKeyValuePairs);
+  let attributeDict = Dict.new();
+  for (const attr of element.attributes) {
+    attributeDict = attributeDict.set(attr.name, attr.value);
+  }
+  return attributeDict;
 }

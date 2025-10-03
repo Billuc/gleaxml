@@ -1,5 +1,8 @@
 import gleam/dict
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/list
+import gleam/regexp
 import gleam/result
 import gleam/string
 
@@ -22,22 +25,57 @@ pub type XmlNode {
   Comment(content: String)
 }
 
-pub type Document
-
 pub fn parse(input: String) -> Result(XmlDocument, String) {
   use doc <- result.try(parse_document(input))
-  echo doc
-  use xmldoc <- result.try(to_xml_document(doc))
+  use xmldoc <- result.try(decode_document(doc))
   Ok(XmlDocument(..xmldoc, root_element: fix_text(xmldoc.root_element)))
 }
 
 @external(erlang, "gleaxml_ffi", "parse")
 @external(javascript, "./gleaxml_ffi.mjs", "parse")
-fn parse_document(input: String) -> Result(Document, String)
+fn parse_document(input: String) -> Result(dynamic.Dynamic, String)
 
-@external(erlang, "gleaxml_ffi", "to_document")
-@external(javascript, "./gleaxml_ffi.mjs", "toDocument")
-fn to_xml_document(doc: Document) -> Result(XmlDocument, String)
+fn decode_document(doc: dynamic.Dynamic) -> Result(XmlDocument, String) {
+  decode.run(doc, {
+    use version <- decode.field("version", decode.string)
+    use encoding <- decode.field("encoding", decode.string)
+    use standalone <- decode.field("standalone", decode.bool)
+    use root_element <- decode.field("root_element", decode_xml_node())
+
+    decode.success(XmlDocument(version, encoding, standalone, root_element))
+  })
+  |> result.map_error(fn(errors) {
+    errors
+    |> list.map(fn(e) {
+      "Expected "
+      <> e.expected
+      <> " at "
+      <> string.join(e.path, "/")
+      <> ", got "
+      <> e.found
+    })
+    |> string.join("\n")
+  })
+}
+
+fn decode_xml_node() -> decode.Decoder(XmlNode) {
+  use type_ <- decode.field("type", decode.string)
+
+  case type_ {
+    "element" -> {
+      use name <- decode.field("tag_name", decode.string)
+      use attrs <- decode.field(
+        "attributes",
+        decode.dict(decode.string, decode.string),
+      )
+      use children <- decode.field("children", decode.list(decode_xml_node()))
+      decode.success(Element(name: name, attrs: attrs, children: children))
+    }
+    "text" -> decode.at(["content"], decode.string) |> decode.map(Text)
+    "comment" -> decode.at(["content"], decode.string) |> decode.map(Comment)
+    _ -> decode.failure(Comment(""), "Unknown node type: " <> type_)
+  }
+}
 
 fn fix_text(node: XmlNode) -> XmlNode {
   case node {
@@ -53,9 +91,9 @@ fn fix_text(node: XmlNode) -> XmlNode {
 }
 
 fn fix_text_whitespace(text: String) -> String {
-  text
-  |> string.replace("\n", " ")
-  |> string.replace("  ", " ")
+  let assert Ok(reg) = regexp.from_string("\n\\s*")
+  reg
+  |> regexp.replace(text, " ")
 }
 
 pub fn get_nodes(root: XmlNode, path: List(String)) -> List(XmlNode) {
