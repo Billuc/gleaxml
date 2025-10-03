@@ -74,7 +74,7 @@ fn parse(parser: Parser) {
 
 fn parse_start_tag(parser: Parser) {
   let parser = drop_newlines_and_whitespaces(parser)
-  use tag_name, parser <- expect(parser, " ")
+  use tag_name, delim, parser <- expect_one_of(parser, [" ", "\r", "\n"])
   todo
 }
 

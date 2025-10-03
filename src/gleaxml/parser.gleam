@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/option
 import gleam/result
 import splitter
 
@@ -71,4 +72,22 @@ pub fn expect(expected_split: String) -> Parser(String, m) {
   }
 }
 
-pub fn one_of()
+pub fn optional(parser: Parser(r, m)) -> Parser(option.Option(r), m) {
+  use state <- Parser
+  let Parser(parse) = parser
+
+  case parse(state) {
+    Ok(ret) ->
+      Ok(ParserReturn(option.Some(ret.data), ret.delimiter, ret.remaining))
+    Error(_) -> Ok(ParserReturn(option.None, "", state.input))
+  }
+}
+
+pub fn drop_while(is_to_drop: fn(String, String) -> Bool) -> Parser(Nil, m) {
+  use before, delim <- do_delim(next_split())
+
+  case is_to_drop(before, delim) {
+    True -> drop_while(is_to_drop)
+    False -> return(Nil)
+  }
+}
