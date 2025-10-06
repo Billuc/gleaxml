@@ -3,11 +3,8 @@ import gleam/dict
 import gleam/list
 import gleam/result
 import gleam/string
+import gleaxml/parser
 import splitter
-
-pub type Parser {
-  Parser(input: String, remaining: String, splitters: Splitters, mode: Mode)
-}
 
 pub type XmlToken {
   TagOpen(name: String)
@@ -35,7 +32,7 @@ pub type Mode {
   EndTag
   // Content
   // Comment
-  AttrValue(quote: String, parent: Mode)
+  AttrValue
   // CDATA
   // Reference(parent: Mode)
   // XmlDecl
@@ -60,38 +57,62 @@ pub type XmlNode {
   // Comment(content: String)
 }
 
-pub type Splitters {
-  Splitters(
-    start_tag_splitter: splitter.Splitter,
-    end_tag_splitter: splitter.Splitter,
-    attr_value_splitter: splitter.Splitter,
+fn parse(input: String) {
+  parser.runner(parse_start_tag(), StartTag)
+  |> parser.register(StartTag, start_tag_splitter())
+  |> parser.register(EndTag, end_tag_splitter())
+  |> parser.register(AttrValue, attr_value_splitter())
+  |> parser.run(input)
+}
+
+fn parse_start_tag() -> parser.Parser(XmlNode, Mode) {
+  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+  use tag_name <- parser.do(parser.expect(" "))
+  use attributes, delim <- parser.do_delim(parse_attributes())
+
+  case delim {
+    "/>" ->
+      parser.return(Element(name: tag_name, attrs: attributes, children: []))
+    ">" -> {
+      todo as "children"
+      todo as "closing tag"
+    }
+    _ -> parser.fail("Expected '>' or '/>' after start tag")
+  }
+}
+
+fn parse_attributes() {
+  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+  use attrs <- parser.do(
+    parser.while(
+      {
+        use attr <- parser.do(parse_attribute())
+        use _ <- parser.do(parser.expect_one_of([" ", "\r", "\n", "/>", ">"]))
+        parser.return(attr)
+      },
+      fn(_, delim) { delim != "/>" && delim != ">" },
+    ),
   )
+  parser.return(attrs |> dict.from_list())
 }
 
-fn parse(parser: Parser) {
-  todo
+fn parse_attribute() {
+  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+  use attr_name <- parser.do(parser.expect("="))
+  use _, quote <- parser.do_delim(parser.expect_one_of(["\"", "'"]))
+  use attr_value <- parser.do(parse_attribute_value(quote))
+
+  parser.return(#(attr_name, attr_value))
 }
 
-fn parse_start_tag(parser: Parser) {
-  let parser = drop_newlines_and_whitespaces(parser)
-  use tag_name, delim, parser <- expect_one_of(parser, [" ", "\r", "\n"])
-  todo
+fn parse_attribute_value(quote: String) {
+  use <- parser.with_mode(AttrValue)
+  use attr_value <- parser.do(parser.until(quote))
+  parser.return(attr_value)
 }
 
-fn parse_attributes(input: String, splitters: Splitters) {
-  todo
-}
-
-fn parse_attribute(parser: Parser) {
-  let parser = parser |> drop_newlines_and_whitespaces
-
-  use attr_name, parser <- expect(parser, "=")
-  use _, quote, parser <- expect_one_of(parser, ["\"", "'"])
-
-  let parser = parser |> into(AttrValue(quote:, parent: parser.mode))
-
-  use #(attr_value, parser) <- result.try(split_while_not(parser, quote))
-  todo
+fn attr_value_splitter() {
+  splitter.new(["\"", "'"])
 }
 
 fn start_tag_splitter() {
@@ -104,95 +125,4 @@ fn end_tag_splitter() {
 
 fn content_splitter() {
   splitter.new(["</", "<"])
-}
-
-fn drop_newlines(parser: Parser) -> Parser {
-  case parser.remaining {
-    "\n" <> rest -> drop_newlines(Parser(..parser, remaining: rest))
-    "\r\n" <> rest -> drop_newlines(Parser(..parser, remaining: rest))
-    _ -> parser
-  }
-}
-
-fn drop_whitespaces(parser: Parser) -> Parser {
-  case parser.remaining {
-    " " <> rest -> drop_whitespaces(Parser(..parser, remaining: rest))
-    _ -> parser
-  }
-}
-
-fn drop_newlines_and_whitespaces(parser: Parser) -> Parser {
-  case parser.remaining {
-    "\n" <> rest ->
-      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
-    "\r\n" <> rest ->
-      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
-    " " <> rest ->
-      drop_newlines_and_whitespaces(Parser(..parser, remaining: rest))
-    _ -> parser
-  }
-}
-
-fn expect(
-  parser: Parser,
-  expected_split: String,
-  then: fn(String, Parser) -> Result(a, Nil),
-) {
-  let splitter = get_splitter(parser)
-  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
-
-  case delim {
-    d if d == expected_split -> then(before, Parser(..parser, remaining: after))
-    _ -> Error(Nil)
-  }
-}
-
-fn expect_one_of(
-  parser: Parser,
-  expected_splits: List(String),
-  then: fn(String, String, Parser) -> Result(a, Nil),
-) {
-  let splitter = get_splitter(parser)
-  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
-
-  use <- bool.guard(!list.contains(expected_splits, delim), Error(Nil))
-
-  then(before, delim, Parser(..parser, remaining: after))
-}
-
-fn get_splitter(parser: Parser) -> splitter.Splitter {
-  case parser.mode {
-    AttrValue(quote:, parent:) -> parser.splitters.attr_value_splitter
-    // CDATA -> todo
-    // Comment -> todo
-    // Content -> todo
-    EndTag -> parser.splitters.end_tag_splitter
-    // Reference(parent:) -> todo
-    StartTag -> parser.splitters.start_tag_splitter
-    // XmlDecl -> todo
-  }
-}
-
-fn into(parser: Parser, mode: Mode) -> Parser {
-  Parser(..parser, mode:)
-}
-
-fn split(parser: Parser) {
-  let splitter = get_splitter(parser)
-  let #(before, delim, after) = splitter.split(splitter, parser.remaining)
-  #(before, delim, Parser(..parser, remaining: after))
-}
-
-fn split_while_not(parser: Parser, stopper: String) {
-  do_split_while_not(parser, stopper, "")
-}
-
-fn do_split_while_not(parser: Parser, stopper: String, accumulator: String) {
-  let #(before, delim, parser) = split(parser)
-
-  case delim {
-    d if d == stopper -> Ok(#(accumulator <> before, parser))
-    "" -> Error(Nil)
-    _ -> do_split_while_not(parser, stopper, accumulator <> before <> delim)
-  }
 }
