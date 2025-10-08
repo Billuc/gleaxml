@@ -11,6 +11,7 @@ pub opaque type Parser(return, mode) {
 
 pub opaque type State(mode) {
   State(
+    last_delimiter: String,
     input: String,
     splitters: dict.Dict(mode, splitter.Splitter),
     mode: mode,
@@ -52,7 +53,7 @@ pub fn run(
   runner: Runner(return, mode),
   input: String,
 ) -> Result(return, String) {
-  let initial_state = State(input, runner.splitters, runner.initial_mode)
+  let initial_state = State("", input, runner.splitters, runner.initial_mode)
   let Parser(parse) = runner.parser
 
   use ret <- result.try(parse(initial_state))
@@ -64,7 +65,7 @@ pub fn run(
 
 pub fn return(return_value: return) -> Parser(return, m) {
   use state <- Parser
-  Ok(ParserReturn(return_value, "", state.input))
+  Ok(ParserReturn(return_value, state.last_delimiter, state.input))
 }
 
 pub fn fail(message: String) -> Parser(r, m) {
@@ -89,11 +90,14 @@ pub fn do(parser: Parser(r, m), then: fn(r) -> Parser(s, m)) -> Parser(s, m) {
 
   let Parser(parse) = parser
   use ret <- result.try(parse(state))
+  let new_state = update_state(state, ret)
 
   let Parser(parse2) = then(ret.data)
-  let new_state = State(..state, input: ret.remaining)
-
   parse2(new_state)
+}
+
+fn update_state(state: State(m), ret: ParserReturn(r)) -> State(m) {
+  State(..state, last_delimiter: ret.delimiter, input: ret.remaining)
 }
 
 pub fn do_delim(
@@ -104,10 +108,9 @@ pub fn do_delim(
 
   let Parser(parse) = parser
   use ret <- result.try(parse(state))
+  let new_state = update_state(state, ret)
 
   let Parser(parse2) = then(ret.data, ret.delimiter)
-  let new_state = State(..state, input: ret.remaining)
-
   parse2(new_state)
 }
 
@@ -131,7 +134,7 @@ fn loop_while(
 
   case continue_fn(ret.data, ret.delimiter) {
     True ->
-      loop_while(State(..state, input: ret.remaining), parser, continue_fn, [
+      loop_while(update_state(state, ret), parser, continue_fn, [
         ret.data,
         ..results
       ])
@@ -140,12 +143,45 @@ fn loop_while(
   }
 }
 
-pub fn until(stop_string: String) -> Parser(String, m) {
+pub fn until(
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+) -> Parser(List(r), m) {
   use state <- Parser
-  do_until(state, next_split(), stop_string, "")
+
+  loop_until(state, parser, continue_fn, [])
 }
 
-fn do_until(
+fn loop_until(
+  state: State(m),
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+  results: List(r),
+) {
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
+
+  case continue_fn(ret.delimiter) {
+    True ->
+      loop_until(update_state(state, ret), parser, continue_fn, [
+        ret.data,
+        ..results
+      ])
+    False ->
+      Ok(ParserReturn(
+        [ret.data, ..results] |> list.reverse(),
+        ret.delimiter,
+        ret.remaining,
+      ))
+  }
+}
+
+pub fn keep_until(stop_string: String) -> Parser(String, m) {
+  use state <- Parser
+  do_keep_until(state, next_split(), stop_string, "")
+}
+
+fn do_keep_until(
   state: State(m),
   parser: Parser(String, m),
   stop_string: String,
@@ -158,8 +194,8 @@ fn do_until(
     True ->
       Ok(ParserReturn(accumulator <> ret.data, ret.delimiter, ret.remaining))
     False ->
-      do_until(
-        State(..state, input: ret.remaining),
+      do_keep_until(
+        update_state(state, ret),
         parser,
         stop_string,
         accumulator <> ret.data <> ret.delimiter,
@@ -222,7 +258,7 @@ fn do_drop_while(state: State(m), is_to_drop: fn(String, String) -> Bool) {
   use ret <- result.try(parse(state))
 
   case is_to_drop(ret.data, ret.delimiter) {
-    True -> do_drop_while(State(..state, input: ret.remaining), is_to_drop)
+    True -> do_drop_while(update_state(state, ret), is_to_drop)
     False -> Ok(ParserReturn(Nil, "", state.input))
   }
 }
@@ -242,4 +278,10 @@ pub fn with_mode(new_mode: m, parser: fn() -> Parser(r, m)) -> Parser(r, m) {
 
   let Parser(parse) = parser()
   parse(new_state)
+}
+
+pub fn tap_state(tap_fn: fn(State(m)) -> Nil) -> Parser(Nil, m) {
+  use state <- Parser
+  tap_fn(state)
+  Ok(ParserReturn(Nil, state.last_delimiter, state.input))
 }

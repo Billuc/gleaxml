@@ -1,5 +1,6 @@
 import gleam/bool
 import gleam/dict
+import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
@@ -28,6 +29,7 @@ pub type XmlToken {
 }
 
 pub type Mode {
+  Root
   StartTag
   EndTag
   // Content
@@ -57,40 +59,71 @@ pub type XmlNode {
   // Comment(content: String)
 }
 
-fn parse(input: String) {
-  parser.runner(parse_start_tag(), StartTag)
+pub fn parse(input: String) -> Result(XmlDocument, String) {
+  parser.runner(parse_xml_document(), Root)
+  |> parser.register(Root, root_splitter())
   |> parser.register(StartTag, start_tag_splitter())
   |> parser.register(EndTag, end_tag_splitter())
   |> parser.register(AttrValue, attr_value_splitter())
   |> parser.run(input)
 }
 
-fn parse_start_tag() -> parser.Parser(XmlNode, Mode) {
+fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
   use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-  use tag_name <- parser.do(parser.expect(" "))
-  use attributes, delim <- parser.do_delim(parse_attributes())
+  use _, delim <- parser.do_delim(parser.next_split())
+
+  case delim {
+    "<" -> {
+      // todo as "XML declaration"
+      use root_element <- parser.do(parse_start_tag())
+      // todo as "content"
+      // todo as "EOF"
+      parser.return(XmlDocument("1.0", "UTF-8", True, root_element))
+    }
+    _ -> parser.fail("Expected '<' at start of XML document")
+  }
+}
+
+fn parse_start_tag() -> parser.Parser(XmlNode, Mode) {
+  use <- parser.with_mode(StartTag)
+  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+  use tag_name, delim <- parser.do_delim(parser.next_split())
 
   case delim {
     "/>" ->
-      parser.return(Element(name: tag_name, attrs: attributes, children: []))
+      parser.return(Element(name: tag_name, attrs: dict.new(), children: []))
     ">" -> {
       todo as "children"
       todo as "closing tag"
     }
-    _ -> parser.fail("Expected '>' or '/>' after start tag")
+    _ -> {
+      use attributes, delim <- parser.do_delim(parse_attributes())
+
+      case delim {
+        "/>" ->
+          parser.return(
+            Element(name: tag_name, attrs: attributes, children: []),
+          )
+        ">" -> {
+          todo as "children"
+          todo as "closing tag"
+        }
+        _ -> parser.fail("Expected '>' or '/>' after attributes")
+      }
+    }
   }
 }
 
 fn parse_attributes() {
   use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
   use attrs <- parser.do(
-    parser.while(
+    parser.until(
       {
         use attr <- parser.do(parse_attribute())
         use _ <- parser.do(parser.expect_one_of([" ", "\r", "\n", "/>", ">"]))
         parser.return(attr)
       },
-      fn(_, delim) { delim != "/>" && delim != ">" },
+      fn(delim) { delim != "/>" && delim != ">" },
     ),
   )
   parser.return(attrs |> dict.from_list())
@@ -107,8 +140,16 @@ fn parse_attribute() {
 
 fn parse_attribute_value(quote: String) {
   use <- parser.with_mode(AttrValue)
-  use attr_value <- parser.do(parser.until(quote))
+  use attr_value <- parser.do(parser.keep_until(quote))
   parser.return(attr_value)
+}
+
+fn echo_state(state: parser.State(m)) {
+  io.println("State: " <> string.inspect(state) <> "\n")
+}
+
+fn root_splitter() {
+  splitter.new(["<", "\r", "\n", " "])
 }
 
 fn attr_value_splitter() {
