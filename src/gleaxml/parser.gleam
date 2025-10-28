@@ -59,7 +59,12 @@ pub fn run(
   use ret <- result.try(parse(initial_state))
   case ret.remaining == "" {
     True -> Ok(ret.data)
-    False -> Error("Parser did not consume all input")
+    False ->
+      Error(
+        "Parser did not consume all input. Remaining input: '"
+        <> ret.remaining
+        <> "'",
+      )
   }
 }
 
@@ -149,7 +154,10 @@ pub fn until(
 ) -> Parser(List(r), m) {
   use state <- Parser
 
-  loop_until(state, parser, continue_fn, [])
+  case continue_fn(state.last_delimiter) {
+    False -> Ok(ParserReturn([], state.last_delimiter, state.input))
+    True -> loop_until(state, parser, continue_fn, [])
+  }
 }
 
 fn loop_until(

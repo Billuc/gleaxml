@@ -12,55 +12,55 @@ pub fn self_closing_tag_test() {
 
   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) =
     gleaxml.parse(self_closing_xml)
-  let gleaxml.Element(name, attrs, children) = node
+  let assert gleaxml.Element(name, attrs, children) = node
   assert name == "br"
   assert attrs == dict.new()
   assert children == []
 }
 
-// pub fn simple_tag_test() {
-//   let simple_tag_xml = "<greeting>Hello, world!</greeting>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) =
-//     gleaxml.parse(simple_tag_xml)
-//   let assert gleaxml.Element(name, attrs, children) = node
-//   assert name == "greeting"
-//   assert attrs == dict.new()
-//   let assert [gleaxml.Text(content)] = children
-//   assert content == "Hello, world!"
-// }
-//
-// pub fn simple_xml_test() {
-//   let simple_xml =
-//     "
-//   <note>
-//     <to>Tove</to>
-//     <from>Jani</from>
-//     <heading>Reminder</heading>
-//     <body>Don't forget me this weekend!</body>
-//   </note>
-//   "
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(simple_xml)
-//   let assert gleaxml.Element(name, attrs, children) = node
-//   assert name == "note"
-//   assert attrs == dict.new()
-//
-//   assert children
-//     == [
-//       gleaxml.Text(" "),
-//       gleaxml.Element("to", dict.new(), [gleaxml.Text("Tove")]),
-//       gleaxml.Text(" "),
-//       gleaxml.Element("from", dict.new(), [gleaxml.Text("Jani")]),
-//       gleaxml.Text(" "),
-//       gleaxml.Element("heading", dict.new(), [gleaxml.Text("Reminder")]),
-//       gleaxml.Text(" "),
-//       gleaxml.Element("body", dict.new(), [
-//         gleaxml.Text("Don't forget me this weekend!"),
-//       ]),
-//       gleaxml.Text(" "),
-//     ]
-// }
+pub fn simple_tag_test() {
+  let simple_tag_xml = "<greeting>Hello, world!</greeting>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) =
+    gleaxml.parse(simple_tag_xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "greeting"
+  assert attrs == dict.new()
+  let assert [gleaxml.Text(content)] = children
+  assert content == "Hello, world!"
+}
+
+pub fn simple_xml_test() {
+  let simple_xml =
+    "
+  <note>
+    <to>Tove</to>
+    <from>Jani</from>
+    <heading>Reminder</heading>
+    <body>Don't forget me this weekend!</body>
+  </note>
+  "
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(simple_xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "note"
+  assert attrs == dict.new()
+
+  assert children
+    == [
+      gleaxml.Text(" "),
+      gleaxml.Element("to", dict.new(), [gleaxml.Text("Tove")]),
+      gleaxml.Text(" "),
+      gleaxml.Element("from", dict.new(), [gleaxml.Text("Jani")]),
+      gleaxml.Text(" "),
+      gleaxml.Element("heading", dict.new(), [gleaxml.Text("Reminder")]),
+      gleaxml.Text(" "),
+      gleaxml.Element("body", dict.new(), [
+        gleaxml.Text("Don't forget me this weekend!"),
+      ]),
+      gleaxml.Text(" "),
+    ]
+}
 
 pub fn self_closing_with_attrs_test() {
   let xml = "<img src=\"image.png\" alt=\"An image\"/>"
@@ -71,30 +71,32 @@ pub fn self_closing_with_attrs_test() {
   assert attrs == dict.from_list([#("src", "image.png"), #("alt", "An image")])
   assert children == []
 }
-// pub fn simple_test_with_attrs_test() {
-//   let xml = "<a href=\"https://example.com\">Link</a>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, attrs, children) = node
-//   assert name == "a"
-//   assert attrs == dict.from_list([#("href", "https://example.com")])
-//   assert children == [gleaxml.Text("Link")]
-// }
-//
-// pub fn xml_with_text_and_children_test() {
-//   let xml = "<div>Hello <b>World</b>!</div>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, attrs, children) = node
-//   assert name == "div"
-//   assert attrs == dict.new()
-//   assert children
-//     == [
-//       gleaxml.Text("Hello "),
-//       gleaxml.Element("b", dict.new(), [gleaxml.Text("World")]),
-//       gleaxml.Text("!"),
-//     ]
-// }
+
+pub fn simple_test_with_attrs_test() {
+  let xml = "<a href=\"https://example.com\">Link</a>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "a"
+  assert attrs == dict.from_list([#("href", "https://example.com")])
+  assert children == [gleaxml.Text("Link")]
+}
+
+pub fn xml_with_text_and_children_test() {
+  let xml = "<div>Hello <b>World</b>!</div>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "div"
+  assert attrs == dict.new()
+  assert children
+    == [
+      gleaxml.Text("Hello "),
+      gleaxml.Element("b", dict.new(), [gleaxml.Text("World")]),
+      gleaxml.Text("!"),
+    ]
+}
+
 //
 // pub fn xml_with_comments_test() {
 //   let xml = "<tag><!-- This is a comment -->Content</tag>"
@@ -120,23 +122,23 @@ pub fn self_closing_with_attrs_test() {
 //
 //   let assert Error(_) = gleaxml.parse(xml)
 // }
-//
-// pub fn fail_if_closing_tag_mismatch_test() {
-//   let xml = "<a>Content</b>"
-//
-//   let assert Error(_) = gleaxml.parse(xml)
-// }
-//
-// pub fn quote_in_attribute_value_test() {
-//   let xml = "<tag attr='Value with \"quotes\"'/>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, attrs, children) = node
-//   assert name == "tag"
-//   assert attrs == dict.from_list([#("attr", "Value with \"quotes\"")])
-//   assert children == []
-// }
-//
+
+pub fn fail_if_closing_tag_mismatch_test() {
+  let xml = "<a>Content</b>"
+
+  let assert Error(_) = gleaxml.parse(xml)
+}
+
+pub fn quote_in_attribute_value_test() {
+  let xml = "<tag attr='Value with \"quotes\"'/>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "tag"
+  assert attrs == dict.from_list([#("attr", "Value with \"quotes\"")])
+  assert children == []
+}
+
 // pub fn cdata_section_test() {
 //   let xml = "<data><![CDATA[Some <unescaped> & data]]></data>"
 //
@@ -171,38 +173,38 @@ pub fn self_closing_with_attrs_test() {
 //   assert children == [gleaxml.Text("[ a \\ b ]")]
 // }
 //
-// pub fn text_with_newlines_test() {
-//   let xml =
-//     "<text>this
-//   is a
-//   multiline
-//   text</text>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "text"
-//   assert children == [gleaxml.Text("this is a multiline text")]
-// }
-//
-// pub fn multiline_content_test() {
-//   let xml =
-//     "
-// <parent>
-//   Test
-//   <child>hello</child>
-// </parent>
-//   "
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "parent"
-//   assert children
-//     == [
-//       gleaxml.Text(" Test "),
-//       gleaxml.Element("child", dict.new(), [gleaxml.Text("hello")]),
-//       gleaxml.Text(" "),
-//     ]
-// }
+pub fn text_with_newlines_test() {
+  let xml =
+    "<text>this
+  is a
+  multiline
+  text</text>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [gleaxml.Text("this is a multiline text")]
+}
+
+pub fn multiline_content_test() {
+  let xml =
+    "
+<parent>
+  Test
+  <child>hello</child>
+</parent>
+  "
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "parent"
+  assert children
+    == [
+      gleaxml.Text(" Test "),
+      gleaxml.Element("child", dict.new(), [gleaxml.Text("hello")]),
+      gleaxml.Text(" "),
+    ]
+}
 //
 // pub fn get_nodes_test() {
 //   let xml =
