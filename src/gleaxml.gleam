@@ -9,6 +9,14 @@ import gleam/string
 import gleaxml/parser
 import splitter
 
+const cdata_start = "<![CDATA["
+
+const cdata_end = "]]>"
+
+const comment_start = "<!--"
+
+const comment_end = "-->"
+
 pub type Mode {
   Root
   StartTag
@@ -16,7 +24,7 @@ pub type Mode {
   Content
   CommentValue
   AttrValue
-  // CDATA
+  CDATA
   // Reference(parent: Mode)
   // XmlDecl
 }
@@ -48,6 +56,7 @@ pub fn parse(input: String) -> Result(XmlDocument, String) {
   |> parser.register(AttrValue, attr_value_splitter())
   |> parser.register(Content, content_splitter())
   |> parser.register(CommentValue, comment_value_splitter())
+  |> parser.register(CDATA, cdata_splitter())
   |> parser.run(input)
 }
 
@@ -68,11 +77,15 @@ fn end_tag_splitter() {
 }
 
 fn content_splitter() {
-  splitter.new(["</", "<!--", "<"])
+  splitter.new(["</", comment_start, cdata_start, "<"])
 }
 
 fn comment_value_splitter() {
-  splitter.new(["-->", "--"])
+  splitter.new([comment_end, "--"])
+}
+
+fn cdata_splitter() {
+  splitter.new([cdata_end])
 }
 
 fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
@@ -163,9 +176,13 @@ fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
       use child <- parser.do(parse_start_tag())
       parser.return([text_elem, option.Some(child)] |> option.values())
     }
-    "<!--" -> {
+    d if d == comment_start -> {
       use comment <- parser.do(parse_comment())
       parser.return([text_elem, option.Some(comment)] |> option.values())
+    }
+    d if d == cdata_start -> {
+      use cdata <- parser.do(parse_cdata())
+      parser.return([text_elem, option.Some(cdata)] |> option.values())
     }
     _ -> parser.fail("Unexpected delimiter in content")
   }
@@ -196,8 +213,14 @@ fn parse_closing_tag(expected_name: String) {
 
 fn parse_comment() -> parser.Parser(XmlNode, Mode) {
   use <- parser.with_mode(CommentValue)
-  use comment_content <- parser.do(parser.expect("-->"))
+  use comment_content <- parser.do(parser.expect(comment_end))
   parser.return(Comment(content: comment_content))
+}
+
+fn parse_cdata() -> parser.Parser(XmlNode, Mode) {
+  use <- parser.with_mode(CDATA)
+  use cdata_content <- parser.do(parser.expect(cdata_end))
+  parser.return(Text(content: cdata_content))
 }
 
 fn echo_state(state: parser.State(m)) {

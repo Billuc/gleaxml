@@ -138,24 +138,24 @@ pub fn quote_in_attribute_value_test() {
   assert children == []
 }
 
-// pub fn cdata_section_test() {
-//   let xml = "<data><![CDATA[Some <unescaped> & data]]></data>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "data"
-//   assert children == [gleaxml.Text("Some <unescaped> & data")]
-// }
-//
-// pub fn cdata_with_brackets_test() {
-//   let xml = "<data><![CDATA[Some ]] tricky data]]></data>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "data"
-//   assert children == [gleaxml.Text("Some ]] tricky data")]
-// }
-//
+pub fn cdata_section_test() {
+  let xml = "<data><![CDATA[Some <unescaped> & data]]></data>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "data"
+  assert children == [gleaxml.Text("Some <unescaped> & data")]
+}
+
+pub fn cdata_with_brackets_test() {
+  let xml = "<data><![CDATA[Some ]] tricky data]]></data>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "data"
+  assert children == [gleaxml.Text("Some ]] tricky data")]
+}
+
 // pub fn entity_reference_test() {
 //   let xml = "<text>this is a &quot;quoted&quot; text</text>"
 //   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
