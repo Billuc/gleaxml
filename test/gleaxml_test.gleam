@@ -97,31 +97,30 @@ pub fn xml_with_text_and_children_test() {
     ]
 }
 
-//
-// pub fn xml_with_comments_test() {
-//   let xml = "<tag><!-- This is a comment -->Content</tag>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "tag"
-//   assert children
-//     == [gleaxml.Comment(" This is a comment "), gleaxml.Text("Content")]
-// }
-//
-// pub fn comment_with_hyphens_test() {
-//   let xml = "<tag><!-- Comment with - hyphens --></tag>"
-//
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "tag"
-//   assert children == [gleaxml.Comment(" Comment with - hyphens ")]
-// }
-//
-// pub fn comment_with_double_hyphens_fails_test() {
-//   let xml = "<tag><!-- Comment with -- hyphens --></tag>"
-//
-//   let assert Error(_) = gleaxml.parse(xml)
-// }
+pub fn xml_with_comments_test() {
+  let xml = "<tag><!-- This is a comment -->Content</tag>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "tag"
+  assert children
+    == [gleaxml.Comment(" This is a comment "), gleaxml.Text("Content")]
+}
+
+pub fn comment_with_hyphens_test() {
+  let xml = "<tag><!-- Comment with - hyphens --></tag>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "tag"
+  assert children == [gleaxml.Comment(" Comment with - hyphens ")]
+}
+
+pub fn comment_with_double_hyphens_fails_test() {
+  let xml = "<tag><!-- Comment with -- hyphens --></tag>"
+
+  let assert Error(_) = gleaxml.parse(xml)
+}
 
 pub fn fail_if_closing_tag_mismatch_test() {
   let xml = "<a>Content</b>"

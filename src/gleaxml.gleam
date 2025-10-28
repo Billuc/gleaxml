@@ -9,33 +9,12 @@ import gleam/string
 import gleaxml/parser
 import splitter
 
-// pub type XmlToken {
-//   TagOpen(name: String)
-//   TagClose
-//   TagSelfClose
-//   TagEnd(name: String)
-//   Text(String)
-//   Equals
-//   CommentStart
-//   CommentEnd
-//   Quote(quote: String)
-//   CDATAOpen
-//   CDATAClose
-//   ReferenceStart
-//   ReferenceName(name: String)
-//   ReferenceCode(code: String)
-//   ReferenceHexCode(code: String)
-//   ReferenceEnd
-//   XmlDeclarationStart
-//   XmlDeclarationEnd
-// }
-
 pub type Mode {
   Root
   StartTag
   EndTag
   Content
-  // Comment
+  CommentValue
   AttrValue
   // CDATA
   // Reference(parent: Mode)
@@ -58,7 +37,7 @@ pub type XmlNode {
     children: List(XmlNode),
   )
   Text(content: String)
-  // Comment(content: String)
+  Comment(content: String)
 }
 
 pub fn parse(input: String) -> Result(XmlDocument, String) {
@@ -68,6 +47,7 @@ pub fn parse(input: String) -> Result(XmlDocument, String) {
   |> parser.register(EndTag, end_tag_splitter())
   |> parser.register(AttrValue, attr_value_splitter())
   |> parser.register(Content, content_splitter())
+  |> parser.register(CommentValue, comment_value_splitter())
   |> parser.run(input)
 }
 
@@ -88,7 +68,11 @@ fn end_tag_splitter() {
 }
 
 fn content_splitter() {
-  splitter.new(["</", "<"])
+  splitter.new(["</", "<!--", "<"])
+}
+
+fn comment_value_splitter() {
+  splitter.new(["-->", "--"])
 }
 
 fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
@@ -169,18 +153,21 @@ fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
   use <- parser.with_mode(Content)
   use text, delim <- parser.do_delim(parser.next_split())
 
-  case delim, text {
-    "</", "" -> parser.return([])
-    "</", _ -> parser.return([Text(fix_text_whitespace(text))])
-    "<", "" -> {
+  let text_elem = case text {
+    "" -> option.None
+    _ -> option.Some(Text(fix_text_whitespace(text)))
+  }
+  case delim {
+    "</" -> parser.return([text_elem] |> option.values())
+    "<" -> {
       use child <- parser.do(parse_start_tag())
-      parser.return([child])
+      parser.return([text_elem, option.Some(child)] |> option.values())
     }
-    "<", _ -> {
-      use child <- parser.do(parse_start_tag())
-      parser.return([Text(fix_text_whitespace(text)), child])
+    "<!--" -> {
+      use comment <- parser.do(parse_comment())
+      parser.return([text_elem, option.Some(comment)] |> option.values())
     }
-    _, _ -> parser.fail("Unexpected delimiter in content")
+    _ -> parser.fail("Unexpected delimiter in content")
   }
 }
 
@@ -205,6 +192,12 @@ fn parse_closing_tag(expected_name: String) {
         <> ">'",
       )
   }
+}
+
+fn parse_comment() -> parser.Parser(XmlNode, Mode) {
+  use <- parser.with_mode(CommentValue)
+  use comment_content <- parser.do(parser.expect("-->"))
+  parser.return(Comment(content: comment_content))
 }
 
 fn echo_state(state: parser.State(m)) {
