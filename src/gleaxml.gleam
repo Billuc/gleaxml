@@ -17,6 +17,10 @@ const comment_start = "<!--"
 
 const comment_end = "-->"
 
+const xml_decl_start = "<?xml"
+
+const xml_decl_end = "?>"
+
 pub type Mode {
   Root
   StartTag
@@ -26,7 +30,7 @@ pub type Mode {
   AttrValue
   CDATA
   // Reference(parent: Mode)
-  // XmlDecl
+  XmlDecl
 }
 
 pub type XmlDocument {
@@ -57,11 +61,12 @@ pub fn parse(input: String) -> Result(XmlDocument, String) {
   |> parser.register(Content, content_splitter())
   |> parser.register(CommentValue, comment_value_splitter())
   |> parser.register(CDATA, cdata_splitter())
+  |> parser.register(XmlDecl, xml_decl_splitter())
   |> parser.run(input)
 }
 
 fn root_splitter() {
-  splitter.new(["<", "\r", "\n", " "])
+  splitter.new([xml_decl_start, "<", "\r", "\n", " "])
 }
 
 fn attr_value_splitter() {
@@ -88,18 +93,90 @@ fn cdata_splitter() {
   splitter.new([cdata_end])
 }
 
+fn xml_decl_splitter() {
+  splitter.new(["=", "\"", "'", xml_decl_end])
+}
+
 fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
   use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
   use _, delim <- parser.do_delim(parser.next_split())
 
   case delim {
+    d if d == xml_decl_start -> {
+      use #(version, encoding, standalone) <- parser.do(parse_xml_declaration())
+      use root_element <- parser.do(parse_start_tag())
+      use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+      parser.return(XmlDocument(version, encoding, standalone, root_element))
+    }
     "<" -> {
-      // todo as "XML declaration"
       use root_element <- parser.do(parse_start_tag())
       use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
       parser.return(XmlDocument("1.0", "UTF-8", True, root_element))
     }
-    _ -> parser.fail("Expected '<' at start of XML document")
+    _ ->
+      parser.fail(
+        "Expected '<' or " <> xml_decl_start <> " at start of XML document",
+      )
+  }
+}
+
+fn parse_xml_declaration() -> parser.Parser(#(String, String, Bool), Mode) {
+  use <- parser.with_mode(XmlDecl)
+  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+  use #(name, value) <- parser.do(parse_attribute())
+
+  case name == "version" {
+    False -> parser.fail("Expected 'version' attribute in XML declaration")
+    True -> {
+      let version = value
+
+      use attr <- parser.do(parser.optional(parse_attribute()))
+      case attr {
+        option.None -> {
+          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+          use _ <- parser.do(parser.expect(xml_decl_end))
+          parser.return(#(version, "UTF-8", True))
+        }
+        option.Some(#("encoding", encoding)) -> {
+          use attr <- parser.do(parser.optional(parse_attribute()))
+          case attr {
+            option.None -> {
+              use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+              use _ <- parser.do(parser.expect(xml_decl_end))
+              parser.return(#(version, encoding, True))
+            }
+            option.Some(#("standalone", standalone)) -> {
+              use standalone <- parser.do(parse_standalone(standalone))
+              use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+              use _ <- parser.do(parser.expect(xml_decl_end))
+              parser.return(#(version, encoding, standalone))
+            }
+            option.Some(#(name, _)) ->
+              parser.fail(
+                "Unexpected attribute '" <> name <> "' in XML declaration",
+              )
+          }
+        }
+        option.Some(#("standalone", standalone)) -> {
+          use standalone <- parser.do(parse_standalone(standalone))
+          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+          use _ <- parser.do(parser.expect(xml_decl_end))
+          parser.return(#(version, "UTF-8", standalone))
+        }
+        option.Some(#(name, _)) ->
+          parser.fail(
+            "Unexpected attribute '" <> name <> "' in XML declaration",
+          )
+      }
+    }
+  }
+}
+
+fn parse_standalone(value: String) -> parser.Parser(Bool, Mode) {
+  case value {
+    "yes" -> parser.return(True)
+    "no" -> parser.return(False)
+    _ -> parser.fail("Expected 'yes' or 'no' for 'standalone' attribute")
   }
 }
 
