@@ -1,5 +1,5 @@
-import gleam/bool
 import gleam/dict
+import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option
@@ -21,6 +21,14 @@ const xml_decl_start = "<?xml"
 
 const xml_decl_end = "?>"
 
+const hex_char_reference = "&#x"
+
+const dec_char_reference = "&#"
+
+const entity_reference = "&"
+
+const semi_colon = ";"
+
 pub type Mode {
   Root
   StartTag
@@ -29,8 +37,14 @@ pub type Mode {
   CommentValue
   AttrValue
   CDATA
-  // Reference(parent: Mode)
+  Reference
   XmlDecl
+}
+
+pub type ReferenceType {
+  CharDec
+  CharHex
+  Entity
 }
 
 pub type XmlDocument {
@@ -62,6 +76,7 @@ pub fn parse(input: String) -> Result(XmlDocument, String) {
   |> parser.register(CommentValue, comment_value_splitter())
   |> parser.register(CDATA, cdata_splitter())
   |> parser.register(XmlDecl, xml_decl_splitter())
+  |> parser.register(Reference, reference_splitter())
   |> parser.run(input)
 }
 
@@ -70,7 +85,13 @@ fn root_splitter() {
 }
 
 fn attr_value_splitter() {
-  splitter.new(["\"", "'"])
+  splitter.new([
+    hex_char_reference,
+    dec_char_reference,
+    entity_reference,
+    "\"",
+    "'",
+  ])
 }
 
 fn start_tag_splitter() {
@@ -82,7 +103,15 @@ fn end_tag_splitter() {
 }
 
 fn content_splitter() {
-  splitter.new(["</", comment_start, cdata_start, "<"])
+  splitter.new([
+    "</",
+    hex_char_reference,
+    dec_char_reference,
+    entity_reference,
+    comment_start,
+    cdata_start,
+    "<",
+  ])
 }
 
 fn comment_value_splitter() {
@@ -94,7 +123,11 @@ fn cdata_splitter() {
 }
 
 fn xml_decl_splitter() {
-  splitter.new(["=", "\"", "'", xml_decl_end])
+  splitter.new(["=", "\"", "'", xml_decl_end, "\r", "\n", " "])
+}
+
+fn reference_splitter() {
+  splitter.new([semi_colon])
 }
 
 fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
@@ -104,9 +137,20 @@ fn parse_xml_document() -> parser.Parser(XmlDocument, Mode) {
   case delim {
     d if d == xml_decl_start -> {
       use #(version, encoding, standalone) <- parser.do(parse_xml_declaration())
-      use root_element <- parser.do(parse_start_tag())
       use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-      parser.return(XmlDocument(version, encoding, standalone, root_element))
+      use _, delim <- parser.do_delim(parser.next_split())
+
+      case delim {
+        "<" -> {
+          use root_element <- parser.do(parse_start_tag())
+          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
+          parser.return(XmlDocument(version, encoding, standalone, root_element))
+        }
+        _ ->
+          parser.fail(
+            "Expected '<' at start of root element after XML declaration",
+          )
+      }
     }
     "<" -> {
       use root_element <- parser.do(parse_start_tag())
@@ -227,8 +271,67 @@ fn parse_attribute() {
 
 fn parse_attribute_value(quote: String) {
   use <- parser.with_mode(AttrValue)
-  use attr_value <- parser.do(parser.keep_until(quote))
-  parser.return(attr_value)
+  use content <- parser.do(
+    parser.do_while(
+      {
+        use value, delim <- parser.do_delim(parser.next_split())
+        use complement <- parser.do(case delim {
+          d if d == quote -> parser.return("")
+          d if d == hex_char_reference -> parse_reference(CharHex)
+          d if d == dec_char_reference -> parse_reference(CharDec)
+          d if d == entity_reference -> parse_reference(Entity)
+          _ -> parser.return(delim)
+        })
+        parser.return(value <> complement)
+      },
+      fn(delim) { delim != quote },
+    ),
+  )
+  parser.return(string.join(content, ""))
+}
+
+fn parse_reference(reference_type: ReferenceType) -> parser.Parser(String, Mode) {
+  use <- parser.with_mode(Reference)
+  use reference_content <- parser.do(parser.expect(semi_colon))
+
+  let str_content_res = case reference_type {
+    CharDec -> {
+      use char_code <- result.try(int.base_parse(reference_content, 10))
+      use char_codepoint <- result.try(string.utf_codepoint(char_code))
+      Ok(string.from_utf_codepoints([char_codepoint]))
+    }
+    CharHex -> {
+      use char_code <- result.try(int.base_parse(reference_content, 16))
+      use char_codepoint <- result.try(string.utf_codepoint(char_code))
+      Ok(string.from_utf_codepoints([char_codepoint]))
+    }
+    Entity ->
+      case reference_content {
+        "lt" -> Ok("<")
+        "gt" -> Ok(">")
+        "amp" -> Ok("&")
+        "apos" -> Ok("'")
+        "quot" -> Ok("\"")
+        _ -> Error(Nil)
+      }
+  }
+
+  case str_content_res {
+    Ok(str_content) -> parser.return(str_content)
+    Error(_) ->
+      parser.fail(
+        "Invalid reference "
+        <> print_reference(reference_type, reference_content),
+      )
+  }
+}
+
+fn print_reference(reference_type: ReferenceType, content: String) {
+  case reference_type {
+    CharDec -> "&#" <> content <> ";"
+    CharHex -> "&#x" <> content <> ";"
+    Entity -> "&" <> content <> ";"
+  }
 }
 
 fn parse_children() {

@@ -172,6 +172,16 @@ pub fn cdata_with_brackets_test() {
 //   assert children == [gleaxml.Text("[ a \\ b ]")]
 // }
 //
+pub fn reference_in_attribute_value_test() {
+  let xml = "<tag attr=\"Value with &lt; &amp; &gt;\"/>"
+
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, attrs, children) = node
+  assert name == "tag"
+  assert attrs == dict.from_list([#("attr", "Value with < & >")])
+  assert children == []
+}
+
 pub fn text_with_newlines_test() {
   let xml =
     "<text>this
@@ -203,6 +213,28 @@ pub fn multiline_content_test() {
       gleaxml.Element("child", dict.new(), [gleaxml.Text("hello")]),
       gleaxml.Text(" "),
     ]
+}
+
+pub fn doc_with_no_xml_declaration_test() {
+  let xml = "<root><child>Content</child></root>"
+
+  let assert Ok(gleaxml.XmlDocument(version, encoding, standalone, _)) =
+    gleaxml.parse(xml)
+  assert version == "1.0"
+  assert encoding == "UTF-8"
+  assert standalone == True
+}
+
+pub fn doc_with_xml_declaration_test() {
+  let xml =
+    "<?xml version=\"1.1\" encoding=\"ISO-8859-1\" standalone=\"no\"?>
+<root><child>Content</child></root>"
+
+  let assert Ok(gleaxml.XmlDocument(version, encoding, standalone, _)) =
+    gleaxml.parse(xml)
+  assert version == "1.1"
+  assert encoding == "ISO-8859-1"
+  assert standalone == False
 }
 //
 // pub fn get_nodes_test() {

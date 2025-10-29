@@ -119,9 +119,9 @@ pub fn do_delim(
   parse2(new_state)
 }
 
-pub fn while(
+pub fn do_while(
   parser: Parser(r, m),
-  continue_fn: fn(r, String) -> Bool,
+  continue_fn: fn(String) -> Bool,
 ) -> Parser(List(r), m) {
   use state <- Parser
 
@@ -131,20 +131,24 @@ pub fn while(
 fn loop_while(
   state: State(m),
   parser: Parser(r, m),
-  continue_fn: fn(r, String) -> Bool,
+  continue_fn: fn(String) -> Bool,
   results: List(r),
 ) {
   let Parser(parse) = parser
   use ret <- result.try(parse(state))
 
-  case continue_fn(ret.data, ret.delimiter) {
+  case continue_fn(ret.delimiter) {
     True ->
       loop_while(update_state(state, ret), parser, continue_fn, [
         ret.data,
         ..results
       ])
     False ->
-      Ok(ParserReturn(results |> list.reverse(), ret.delimiter, ret.remaining))
+      Ok(ParserReturn(
+        [ret.data, ..results] |> list.reverse(),
+        ret.delimiter,
+        ret.remaining,
+      ))
   }
 }
 
