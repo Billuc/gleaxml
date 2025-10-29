@@ -39,14 +39,14 @@ to_node(Xml) ->
         #xmlElement{name = Name, attributes = Attrs, content = Children} ->
             Tag = atom_to_binary(Name),
             AttrMap = maps:from_list(
-                [ {atom_to_binary(A#xmlAttribute.name), list_to_binary(A#xmlAttribute.value)} || A <- Attrs ]
+                [ {atom_to_binary(A#xmlAttribute.name), unicode:characters_to_binary(A#xmlAttribute.value)} || A <- Attrs ]
             ),
             ChildNodes = [to_node(C) || C <- Children, is_node(C)],
             #{atom_to_binary(type) => atom_to_binary(element), list_to_binary("tag_name") => Tag, atom_to_binary(attributes) => AttrMap, atom_to_binary(children) => ChildNodes};
         #xmlText{value = Content} ->
-            #{atom_to_binary(type) => atom_to_binary(text), atom_to_binary(content) => list_to_binary(Content)};
+            #{atom_to_binary(type) => atom_to_binary(text), atom_to_binary(content) => unicode:characters_to_binary(Content)};
         #xmlComment{value = Content} ->
-            #{atom_to_binary(type) => atom_to_binary(comment), atom_to_binary(content) => list_to_binary(Content)};
+            #{atom_to_binary(type) => atom_to_binary(comment), atom_to_binary(content) => unicode:characters_to_binary(Content)};
         _ ->
             undefined
     end.
