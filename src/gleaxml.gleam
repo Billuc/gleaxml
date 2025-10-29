@@ -445,3 +445,98 @@ fn parse_cdata() -> parser.Parser(XmlNode, Mode) {
 fn echo_state(state: parser.State(m)) {
   io.println("State: " <> string.inspect(state) <> "\n")
 }
+
+pub fn get_nodes(root: XmlNode, path: List(String)) -> List(XmlNode) {
+  case path, root {
+    [name, ..rest], Element(n, _, _) if n == name -> do_get_nodes(rest, [root])
+    _, _ -> []
+  }
+}
+
+fn do_get_nodes(path: List(String), nodes: List(XmlNode)) -> List(XmlNode) {
+  case path {
+    [] -> nodes
+    ["*", ..rest] -> {
+      let children =
+        nodes
+        |> list.flat_map(fn(node) {
+          case node {
+            Element(_, _, children) -> children
+            _ -> []
+          }
+        })
+      do_get_nodes(rest, children)
+    }
+    [name, ..rest] -> {
+      let children =
+        nodes
+        |> list.flat_map(fn(node) {
+          case node {
+            Element(_, _, children) -> {
+              children
+              |> list.filter_map(fn(child) {
+                case child {
+                  Element(n, _, _) if n == name -> Ok(child)
+                  _ -> Error(Nil)
+                }
+              })
+            }
+            _ -> []
+          }
+        })
+      do_get_nodes(rest, children)
+    }
+  }
+}
+
+pub fn get_node(root: XmlNode, path: List(String)) -> Result(XmlNode, String) {
+  let nodes = get_nodes(root, path)
+  case nodes {
+    [node, ..] -> Ok(node)
+    [] -> Error("No node found at path " <> string.join(path, "/"))
+  }
+}
+
+pub fn get_attribute(node: XmlNode, name: String) -> Result(String, String) {
+  case node {
+    Element(_, attrs, _) -> {
+      attrs
+      |> dict.get(name)
+      |> result.replace_error("No attribute with name " <> name)
+    }
+    _ -> Error("Node is not an element")
+  }
+}
+
+pub fn get_texts(node: XmlNode) -> List(String) {
+  case node {
+    Element(_, _, children) ->
+      children
+      |> list.filter_map(fn(child) {
+        case child {
+          Text(content) -> Ok(content)
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
+  }
+}
+
+pub fn get_nonempty_texts(node: XmlNode) -> List(String) {
+  get_texts(node)
+  |> list.filter(fn(text) { string.trim(text) != "" })
+}
+
+pub fn get_comments(node: XmlNode) -> List(String) {
+  case node {
+    Element(_, _, children) ->
+      children
+      |> list.filter_map(fn(child) {
+        case child {
+          Comment(content) -> Ok(content)
+          _ -> Error(Nil)
+        }
+      })
+    _ -> []
+  }
+}

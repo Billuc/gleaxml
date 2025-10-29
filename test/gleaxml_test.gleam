@@ -236,98 +236,98 @@ pub fn doc_with_xml_declaration_test() {
   assert encoding == "ISO-8859-1"
   assert standalone == False
 }
-//
-// pub fn get_nodes_test() {
-//   let xml =
-//     "<root><child id=\"1\">First</child><child id=\"2\">Second</child></root>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, root)) = gleaxml.parse(xml)
-//
-//   let nodes = gleaxml.get_nodes(root, ["root", "child"])
-//   assert nodes |> list.length() == 2
-// }
-//
-// pub fn get_node_test() {
-//   let xml =
-//     "<root><child id=\"1\">First</child><child id=\"2\">Second</child></root>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, root)) = gleaxml.parse(xml)
-//
-//   let assert Ok(first_child) = gleaxml.get_node(root, ["root", "child"])
-//   let assert gleaxml.Element(name, attrs, _) = first_child
-//   assert name == "child"
-//   assert attrs == dict.from_list([#("id", "1")])
-//
-//   let assert Error(msg) = gleaxml.get_node(root, ["root", "nonexistent"])
-//   assert msg == "No node found at path root/nonexistent"
-// }
-//
-// pub fn get_attribute_test() {
-//   let xml = "<element attr1=\"value1\" attr2=\"value2\"/>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let assert Ok(attr1) = gleaxml.get_attribute(node, "attr1")
-//   let assert Ok(attr2) = gleaxml.get_attribute(node, "attr2")
-//   assert attr1 == "value1"
-//   assert attr2 == "value2"
-//
-//   let assert Error(msg) = gleaxml.get_attribute(node, "nonexistent")
-//   assert msg == "No attribute with name nonexistent"
-// }
-//
-// pub fn get_texts_test() {
-//   let xml = "<element>Text1<b>Bold</b>Text2<!-- Comment -->Text3</element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let texts = gleaxml.get_texts(node)
-//   assert texts == ["Text1", "Text2", "Text3"]
-// }
-//
-// pub fn get_texts_with_newlines_test() {
-//   let xml =
-//     "<element>
-//   <b>Bold</b>
-//   Text1
-//   Text2
-//   <!-- Comment -->
-//   Text3
-// </element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let texts = gleaxml.get_texts(node)
-//   assert texts == [" ", " Text1 Text2 ", " Text3 "]
-// }
-//
-// pub fn get_nonempty_texts_test() {
-//   let xml =
-//     "<element>
-//   <b>Bold</b>
-//   mytext
-// </element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let texts = gleaxml.get_nonempty_texts(node)
-//   assert texts == [" mytext "]
-// }
-//
-// pub fn no_nonempty_texts_test() {
-//   let xml = "<element><b>Bold</b><!-- Comment --></element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let texts = gleaxml.get_nonempty_texts(node)
-//   assert texts == []
-// }
-//
-// pub fn get_comments_test() {
-//   let xml = "<element><!-- Comment1 --><b>Bold</b><!-- Comment2 --></element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let comments = gleaxml.get_comments(node)
-//   assert comments == [" Comment1 ", " Comment2 "]
-// }
-//
-// pub fn no_comments_test() {
-//   let xml = "<element><b>Bold</b>Text</element>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//
-//   let comments = gleaxml.get_comments(node)
-//   assert comments == []
-// }
+
+pub fn get_nodes_test() {
+  let xml =
+    "<root><child id=\"1\">First</child><child id=\"2\">Second</child></root>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, root)) = gleaxml.parse(xml)
+
+  let nodes = gleaxml.get_nodes(root, ["root", "child"])
+  assert nodes |> list.length() == 2
+}
+
+pub fn get_node_test() {
+  let xml =
+    "<root><child id=\"1\">First</child><child id=\"2\">Second</child></root>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, root)) = gleaxml.parse(xml)
+
+  let assert Ok(first_child) = gleaxml.get_node(root, ["root", "child"])
+  let assert gleaxml.Element(name, attrs, _) = first_child
+  assert name == "child"
+  assert attrs == dict.from_list([#("id", "1")])
+
+  let assert Error(msg) = gleaxml.get_node(root, ["root", "nonexistent"])
+  assert msg == "No node found at path root/nonexistent"
+}
+
+pub fn get_attribute_test() {
+  let xml = "<element attr1=\"value1\" attr2=\"value2\"/>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let assert Ok(attr1) = gleaxml.get_attribute(node, "attr1")
+  let assert Ok(attr2) = gleaxml.get_attribute(node, "attr2")
+  assert attr1 == "value1"
+  assert attr2 == "value2"
+
+  let assert Error(msg) = gleaxml.get_attribute(node, "nonexistent")
+  assert msg == "No attribute with name nonexistent"
+}
+
+pub fn get_texts_test() {
+  let xml = "<element>Text1<b>Bold</b>Text2<!-- Comment -->Text3</element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let texts = gleaxml.get_texts(node)
+  assert texts == ["Text1", "Text2", "Text3"]
+}
+
+pub fn get_texts_with_newlines_test() {
+  let xml =
+    "<element>
+  <b>Bold</b>
+  Text1
+  Text2
+  <!-- Comment -->
+  Text3
+</element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let texts = gleaxml.get_texts(node)
+  assert texts == [" ", " Text1 Text2 ", " Text3 "]
+}
+
+pub fn get_nonempty_texts_test() {
+  let xml =
+    "<element>
+  <b>Bold</b>
+  mytext
+</element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let texts = gleaxml.get_nonempty_texts(node)
+  assert texts == [" mytext "]
+}
+
+pub fn no_nonempty_texts_test() {
+  let xml = "<element><b>Bold</b><!-- Comment --></element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let texts = gleaxml.get_nonempty_texts(node)
+  assert texts == []
+}
+
+pub fn get_comments_test() {
+  let xml = "<element><!-- Comment1 --><b>Bold</b><!-- Comment2 --></element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let comments = gleaxml.get_comments(node)
+  assert comments == [" Comment1 ", " Comment2 "]
+}
+
+pub fn no_comments_test() {
+  let xml = "<element><b>Bold</b>Text</element>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+
+  let comments = gleaxml.get_comments(node)
+  assert comments == []
+}
