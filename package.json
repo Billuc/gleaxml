@@ -1,0 +1,26 @@
+{
+  "name": "gleaxml",
+  "version": "1.0.0",
+  "description": "[![Package Version](https://img.shields.io/hexpm/v/gleaxml)](https://hex.pm/packages/gleaxml) [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/gleaxml/)",
+  "homepage": "https://github.com/Billuc/gleaxml#readme",
+  "bugs": {
+    "url": "https://github.com/Billuc/gleaxml/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Billuc/gleaxml.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "jsdom": "^27.0.0"
+  }
+}
