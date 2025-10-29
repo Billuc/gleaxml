@@ -12,6 +12,10 @@ I also chose different XML document to bench those parsers against. The first is
 The second is a "medium-sized" RSS XML taken from phys.org (which is the kind of document I want to parse).
 The third is a "large" XML taken from [this site](https://aiweb.cs.washington.edu/research/projects/xmltk/xmldata/). It is about 20MB in size and has a max depth of 8.
 
+## The setup
+
+I ran this benchmark on a Windows 11 computer with an Intel i7 CPU and 32GB of RAM.
+
 ## Erlang target
 
 ### Benchmark results
