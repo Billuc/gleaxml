@@ -20,7 +20,6 @@ pub fn main() {
         "<root><child attr=\"value\">Text</child><!-- Comment --></root>",
       ),
       bench.Input("RSS XML", rss_xml),
-      bench.Input("20MB XML", xml_20mb),
     ],
     [
       bench.Function("Nibble Xml Parser", nibble_parse),
@@ -28,6 +27,20 @@ pub fn main() {
       bench.Function("FFI Xml Parser", ffi_parse),
     ],
     [],
+  )
+  |> bench.table([bench.IPS, bench.Min, bench.Max, bench.Mean, bench.P(99)])
+  |> io.println()
+
+  io.println(
+    "Not benching Nibble Xml Parser on 20MB XML due to very long execution time and high memory usage.",
+  )
+  bench.run(
+    [bench.Input("20MB XML", xml_20mb)],
+    [
+      bench.Function("Splitter Xml Parser", splitter_parse),
+      bench.Function("FFI Xml Parser", ffi_parse),
+    ],
+    [bench.Duration(30_000)],
   )
   |> bench.table([bench.IPS, bench.Min, bench.Max, bench.Mean, bench.P(99)])
   |> io.println()
