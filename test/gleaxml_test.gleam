@@ -156,22 +156,22 @@ pub fn cdata_with_brackets_test() {
   assert children == [gleaxml.Text("Some ]] tricky data")]
 }
 
-// pub fn entity_reference_test() {
-//   let xml = "<text>this is a &quot;quoted&quot; text</text>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "text"
-//   assert children == [gleaxml.Text("this is a \"quoted\" text")]
-// }
-//
-// pub fn char_reference_test() {
-//   let xml = "<text>&#91; a &#x5c; b &#93;</text>"
-//   let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
-//   let assert gleaxml.Element(name, _attrs, children) = node
-//   assert name == "text"
-//   assert children == [gleaxml.Text("[ a \\ b ]")]
-// }
-//
+pub fn entity_reference_test() {
+  let xml = "<text>this is a &quot;quoted&quot; text</text>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [gleaxml.Text("this is a \"quoted\" text")]
+}
+
+pub fn char_reference_test() {
+  let xml = "<text>&#91; a &#x5c; b &#93;</text>"
+  let assert Ok(gleaxml.XmlDocument(_, _, _, node)) = gleaxml.parse(xml)
+  let assert gleaxml.Element(name, _attrs, children) = node
+  assert name == "text"
+  assert children == [gleaxml.Text("[ a \\ b ]")]
+}
+
 pub fn reference_in_attribute_value_test() {
   let xml = "<tag attr=\"Value with &lt; &amp; &gt;\"/>"
 

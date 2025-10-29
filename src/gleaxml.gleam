@@ -339,7 +339,9 @@ fn parse_children() {
   use children_lists <- parser.do(
     parser.until(parse_child(), fn(delim) { delim != "</" }),
   )
-  parser.return(list.flatten(children_lists))
+  let children = list.flatten(children_lists)
+  let children = merge_text_nodes(children)
+  parser.return(children)
 }
 
 fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
@@ -364,6 +366,21 @@ fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
       use cdata <- parser.do(parse_cdata())
       parser.return([text_elem, option.Some(cdata)] |> option.values())
     }
+    d if d == hex_char_reference -> {
+      use ref_content <- parser.do(parse_reference(CharHex))
+      let text_node = Text(content: ref_content)
+      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    }
+    d if d == dec_char_reference -> {
+      use ref_content <- parser.do(parse_reference(CharDec))
+      let text_node = Text(content: ref_content)
+      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    }
+    d if d == entity_reference -> {
+      use ref_content <- parser.do(parse_reference(Entity))
+      let text_node = Text(content: ref_content)
+      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    }
     _ -> parser.fail("Unexpected delimiter in content")
   }
 }
@@ -371,6 +388,28 @@ fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
 fn fix_text_whitespace(text: String) -> String {
   let assert Ok(reg) = regexp.from_string("\n\\s*")
   reg |> regexp.replace(text, " ")
+}
+
+fn merge_text_nodes(children: List(XmlNode)) -> List(XmlNode) {
+  case children {
+    [] -> []
+    [_] -> children
+    [first, ..rest] -> do_merge_text_nodes(rest, [first])
+  }
+}
+
+fn do_merge_text_nodes(
+  remaining: List(XmlNode),
+  acc: List(XmlNode),
+) -> List(XmlNode) {
+  case remaining, acc {
+    [], _ -> list.reverse(acc)
+    [Text(t1), ..rest], [Text(t2), ..acc_rest] -> {
+      let merged_text = Text(content: t2 <> t1)
+      do_merge_text_nodes(rest, [merged_text, ..acc_rest])
+    }
+    [next, ..rest], _ -> do_merge_text_nodes(rest, [next, ..acc])
+  }
 }
 
 fn parse_closing_tag(expected_name: String) {
