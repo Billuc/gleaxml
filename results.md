@@ -27,21 +27,21 @@ benching set RSS XML Nibble Xml Parser
 benching set RSS XML Splitter Xml Parser
 benching set RSS XML FFI Xml Parser
 
-Input               Function                       IPS           Min           Max          Mean           P99
-Small XML           Nibble Xml Parser        1571.3233        0.5210        2.3104        0.6364        1.0128
-Small XML           Splitter Xml Parser     24435.4212        0.0134        1.8319        0.0409        0.4537
-Small XML           FFI Xml Parser          57915.7492        0.0109        1.3557        0.0172        0.0587
-RSS XML             Nibble Xml Parser           1.9877      492.4236      523.7096      503.0826      523.7096
-RSS XML             Splitter Xml Parser       286.8275        1.3565        6.9928        3.4864        5.9410
-RSS XML             FFI Xml Parser             74.4078       10.7649       19.6065       13.4394       17.3714
+Input               Function                       IPS          Mean            SD           Min           Max           P99
+Small XML           Nibble Xml Parser        1621.5860        0.6166        0.0598        0.5202        1.3497        0.8220
+Small XML           Splitter Xml Parser     25711.5187        0.0388        0.0757        0.0134        2.5307        0.4296
+Small XML           FFI Xml Parser          61161.1047        0.0163        0.0110        0.0110        0.6093        0.0522
+RSS XML             Nibble Xml Parser           2.0644      484.3904        6.0017      477.0457      493.7076      493.7076
+RSS XML             Splitter Xml Parser       302.1760        3.3093        0.7497        2.4544        5.9974        5.2471
+RSS XML             FFI Xml Parser             74.8305       13.3635        0.5270       12.3682       16.3330       14.8474
 
 Not benching Nibble Xml Parser on 20MB XML due to very long execution time and high memory usage.
 benching set 20MB XML Splitter Xml Parser
 benching set 20MB XML FFI Xml Parser
 
 Input               Function                       IPS           Min           Max          Mean           P99
-20MB XML            Splitter Xml Parser         0.1218     8035.5860     8295.8962     8204.7781     8295.8962
-20MB XML            FFI Xml Parser              0.0540    18505.2516    18505.2516    18505.2516    18505.2516
+20MB XML            Splitter Xml Parser         0.1296     7535.8357     7831.2075     7715.1691     7831.2075
+20MB XML            FFI Xml Parser              0.0528    18911.3905    18911.3905    18911.3905    18911.3905
 
 ### Analysis
 
@@ -63,21 +63,21 @@ benching set RSS XML Nibble Xml Parser
 benching set RSS XML Splitter Xml Parser
 benching set RSS XML FFI Xml Parser
 
-Input               Function                       IPS           Min           Max          Mean           P99
-Small XML           Nibble Xml Parser        2858.9662        0.2631        4.9039        0.3497        2.4830
-Small XML           Splitter Xml Parser     19010.6962        0.0409        1.0833        0.0526        0.1294
-Small XML           FFI Xml Parser            252.3183        2.0102       49.7116        3.9632       39.8011
-RSS XML             Nibble Xml Parser           6.8022      138.2160      160.7954      147.0102      160.7954
-RSS XML             Splitter Xml Parser       180.7588        4.3504       10.0672        5.5322        7.6727
-RSS XML             FFI Xml Parser             83.1008        8.0660       39.3105       12.0335       37.5235
+Input               Function                       IPS          Mean            SD           Min           Max           P99
+Small XML           Nibble Xml Parser        2962.1175        0.3375        0.1985        0.2614        2.4809        1.5666
+Small XML           Splitter Xml Parser     19289.0837        0.0518        0.0371        0.0400        2.2642        0.1230
+Small XML           FFI Xml Parser            277.0603        3.6093        4.9692        1.9326       38.6214       33.3262
+RSS XML             Nibble Xml Parser           6.2610      159.7168       37.1099      126.2318      243.1317      243.1317
+RSS XML             Splitter Xml Parser       185.6392        5.3867        2.0135        3.8836       18.4995       14.0524
+RSS XML             FFI Xml Parser             92.3344       10.8301        5.1439        7.6413       28.0219       25.9219
 
 Not benching Nibble Xml Parser on 20MB XML due to very long execution time and high memory usage.
 benching set 20MB XML Splitter Xml Parser
 benching set 20MB XML FFI Xml Parser
 
 Input               Function                       IPS           Min           Max          Mean           P99
-20MB XML            Splitter Xml Parser         0.1209     7660.9426     9019.3744     8264.6108     9019.3744
-20MB XML            FFI Xml Parser              0.0664    15047.9969    15047.9969    15047.9969    15047.9969
+20MB XML            Splitter Xml Parser         0.1380     7024.2156     7462.3651     7243.2438     7462.3651
+20MB XML            FFI Xml Parser              0.0656    15236.0095    15236.0095    15236.0095    15236.0095
 
 ### Analysis
 

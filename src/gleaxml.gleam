@@ -28,7 +28,14 @@ pub fn main() {
     ],
     [],
   )
-  |> bench.table([bench.IPS, bench.Min, bench.Max, bench.Mean, bench.P(99)])
+  |> bench.table([
+    bench.IPS,
+    bench.Mean,
+    bench.SD,
+    bench.Min,
+    bench.Max,
+    bench.P(99),
+  ])
   |> io.println()
 
   io.println(
