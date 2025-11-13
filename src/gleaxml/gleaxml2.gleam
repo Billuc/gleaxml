@@ -1,6 +1,5 @@
 import gleam/dict
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option
 import gleam/regexp
@@ -70,19 +69,35 @@ pub fn parse(input: String) -> Result(XmlDocument, String) {
       reference: reference_splitter(),
     )
 
-  let ParserReturn(res, state) = parse_xml_document(splitters, state)
-
-  case res {
-    Ok(doc) -> Ok(doc)
-    Error(_) ->
-      Error(
-        "XML parsing failed at delimiter '"
-        <> state.delimiter_string
-        <> "' with remaining input: '"
-        <> state.input
-        <> "'",
-      )
+  case parse_xml_document(splitters, state) {
+    Ok(ParserReturn(doc, _)) -> Ok(doc)
+    Error(err) -> Error(print_error(err))
   }
+}
+
+fn print_error(error: XmlParseError) -> String {
+  case error {
+    ParserError(e) -> "Parser error: " <> parser2.print_error(e)
+    ClosingTagMismatch(expected, found) ->
+      "Closing tag mismatch: expected </"
+      <> expected
+      <> "> but found </"
+      <> found
+      <> ">"
+    InvalidReference(reference) -> "Invalid reference: " <> reference
+    InvalidStartTag -> "Invalid start tag"
+    NoVersion -> "XML declaration missing version attribute"
+    InvalidStandaloneValue(value) -> "Invalid standalone value: " <> value
+  }
+}
+
+type XmlParseError {
+  ParserError(error: parser2.ParserError)
+  ClosingTagMismatch(expected: String, found: String)
+  InvalidReference(reference: String)
+  InvalidStartTag
+  NoVersion
+  InvalidStandaloneValue(value: String)
 }
 
 type Splitters {
@@ -139,8 +154,6 @@ type StartTagToken {
   STSelfClosingTag
   STGreaterThan
   STEqualSign
-  STDoubleQuote
-  STSingleQuote
   STCarriageReturn
   STNewLine
   STSpace
@@ -151,8 +164,6 @@ fn start_tag_splitter() {
   |> parser2.add_token("/>", STSelfClosingTag)
   |> parser2.add_token(">", STGreaterThan)
   |> parser2.add_token("=", STEqualSign)
-  |> parser2.add_token("\"", STDoubleQuote)
-  |> parser2.add_token("'", STSingleQuote)
   |> parser2.add_token("\r", STCarriageReturn)
   |> parser2.add_token("\n", STNewLine)
   |> parser2.add_token(" ", STSpace)
@@ -221,8 +232,6 @@ fn cdata_splitter() {
 
 type XmlDeclToken {
   XDEqual
-  XDDoubleQuote
-  XDSingleQuote
   XDDeclarationEnd
   XDCarriageReturn
   XDNewLine
@@ -232,8 +241,6 @@ type XmlDeclToken {
 fn xml_decl_splitter() {
   parser2.splitter()
   |> parser2.add_token("=", XDEqual)
-  |> parser2.add_token("\"", XDDoubleQuote)
-  |> parser2.add_token("'", XDSingleQuote)
   |> parser2.add_token(xml_decl_end, XDDeclarationEnd)
   |> parser2.add_token("\r", XDCarriageReturn)
   |> parser2.add_token("\n", XDNewLine)
@@ -251,200 +258,341 @@ fn reference_splitter() {
   |> parser2.build()
 }
 
-type XmlParseError {
-  NoDelimiter
-  UnexpectedDelimiter(delimiter: String, expected: String)
-}
-
 fn parse_xml_document(
   splitters: Splitters,
   state: State(RootToken),
-) -> ParserReturn(XmlDocument, RootToken) {
-  let ParserReturn(_, state) =
-    parser2.drop_while(state, fn(t) {
-      case t {
-        RSpace -> True
-        RCarriageReturn -> True
-        RNewLine -> True
-        _ -> False
-      }
-    })
-  let ParserReturn(_, state) =
+) -> Result(ParserReturn(XmlDocument, RootToken), XmlParseError) {
+  use ParserReturn(_, state) <- result.try(
+    parser2.drop_tokens(state, [RSpace, RCarriageReturn, RNewLine])
+    |> result.map_error(ParserError),
+  )
+  use ParserReturn(_, state) <- result.try(
     parser2.expect_one_of(state, [RXmlDeclStart, RLessThan])
+    |> result.map_error(ParserError),
+  )
 
   case state.delimiter {
     option.Some(RXmlDeclStart) -> {
-      let ParserReturn(res, state) = parse_xml_declaration(splitters, state)
-    }
-    option.Some(RLessThan) -> {
-      let ParserReturn(res, state) = parse_start_tag(splitters, state)
-    }
-    _ ->
-      ParserReturn(
-        XmlDocument(version, encoding, standalone, root_element),
+      let state = parser2.with_splitter(state, splitters.xml_decl)
+      use ParserReturn(decl, state) <- result.try(parse_xml_declaration(
+        splitters,
         state,
+      ))
+      let state = parser2.with_splitter(state, splitters.root)
+      use _ <- result.try(
+        parser2.drop_tokens(state, [RSpace, RCarriageReturn, RNewLine])
+        |> result.map_error(ParserError),
       )
-  }
-
-  case delim {
-    d if d == xml_decl_start -> {
-      use #(version, encoding, standalone) <- parser.do(parse_xml_declaration())
-      use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-      use _, delim <- parser.do_delim(parser.next_split())
-
-      case delim {
-        "<" -> {
-          use root_element <- parser.do(parse_start_tag())
-          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-          parser.return(XmlDocument(version, encoding, standalone, root_element))
-        }
-        _ ->
-          parser.fail(
-            "Expected '<' at start of root element after XML declaration",
-          )
-      }
-    }
-    "<" -> {
-      use root_element <- parser.do(parse_start_tag())
-      use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-      parser.return(XmlDocument("1.0", "UTF-8", True, root_element))
-    }
-    _ ->
-      parser.fail(
-        "Expected '<' or " <> xml_decl_start <> " at start of XML document",
+      use ParserReturn(_, state) <- result.try(
+        parser2.expect(state, RLessThan)
+        |> result.map_error(ParserError),
       )
-  }
-}
+      use ParserReturn(root_element, state) <- result.try(parse_start_tag(
+        splitters,
+        state,
+      ))
+      use _ <- result.try(
+        parser2.drop_tokens(state, [RSpace, RCarriageReturn, RNewLine])
+        |> result.map_error(ParserError),
+      )
+      use _ <- result.try(
+        parser2.eof(state)
+        |> result.map_error(ParserError),
+      )
 
-fn parse_xml_declaration() -> parser.Parser(#(String, String, Bool), Mode) {
-  use <- parser.with_mode(XmlDecl)
-  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-  use #(name, value) <- parser.do(parse_attribute())
-
-  case name == "version" {
-    False -> parser.fail("Expected 'version' attribute in XML declaration")
-    True -> {
-      let version = value
-
-      use attr <- parser.do(parser.optional(parse_attribute()))
-      case attr {
-        option.None -> {
-          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-          use _ <- parser.do(parser.expect(xml_decl_end))
-          parser.return(#(version, "UTF-8", True))
-        }
-        option.Some(#("encoding", encoding)) -> {
-          use attr <- parser.do(parser.optional(parse_attribute()))
-          case attr {
-            option.None -> {
-              use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-              use _ <- parser.do(parser.expect(xml_decl_end))
-              parser.return(#(version, encoding, True))
-            }
-            option.Some(#("standalone", standalone)) -> {
-              use standalone <- parser.do(parse_standalone(standalone))
-              use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-              use _ <- parser.do(parser.expect(xml_decl_end))
-              parser.return(#(version, encoding, standalone))
-            }
-            option.Some(#(name, _)) ->
-              parser.fail(
-                "Unexpected attribute '" <> name <> "' in XML declaration",
-              )
-          }
-        }
-        option.Some(#("standalone", standalone)) -> {
-          use standalone <- parser.do(parse_standalone(standalone))
-          use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-          use _ <- parser.do(parser.expect(xml_decl_end))
-          parser.return(#(version, "UTF-8", standalone))
-        }
-        option.Some(#(name, _)) ->
-          parser.fail(
-            "Unexpected attribute '" <> name <> "' in XML declaration",
-          )
-      }
-    }
-  }
-}
-
-fn parse_standalone(value: String) -> parser.Parser(Bool, Mode) {
-  case value {
-    "yes" -> parser.return(True)
-    "no" -> parser.return(False)
-    _ -> parser.fail("Expected 'yes' or 'no' for 'standalone' attribute")
-  }
-}
-
-fn parse_start_tag() -> parser.Parser(XmlNode, Mode) {
-  use <- parser.with_mode(StartTag)
-  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-  use tag_name <- parser.do(parser.next_split())
-  use attributes, delim <- parser.do_delim(parse_attributes())
-
-  case delim {
-    "/>" ->
-      parser.return(Element(name: tag_name, attrs: attributes, children: []))
-    ">" -> {
-      use children <- parser.do(parse_children())
-      use _ <- parser.do(parse_closing_tag(tag_name))
-      parser.return(Element(
-        name: tag_name,
-        attrs: attributes,
-        children: children,
+      Ok(ParserReturn(
+        XmlDocument(
+          version: decl.0,
+          encoding: decl.1,
+          standalone: decl.2,
+          root_element:,
+        ),
+        state,
       ))
     }
-    _ -> parser.fail("Expected '>' or '/>' after attributes")
+    option.Some(RLessThan) -> {
+      use ParserReturn(root_element, state) <- result.try(parse_start_tag(
+        splitters,
+        state,
+      ))
+      use _ <- result.try(
+        parser2.drop_tokens(state, [RSpace, RCarriageReturn, RNewLine])
+        |> result.map_error(ParserError),
+      )
+      use _ <- result.try(
+        parser2.eof(state)
+        |> result.map_error(ParserError),
+      )
+
+      Ok(ParserReturn(
+        XmlDocument(
+          version: "1.0",
+          encoding: "UTF-8",
+          standalone: True,
+          root_element:,
+        ),
+        state,
+      ))
+    }
+    _ -> Error(ParserError(parser2.Unreachable))
   }
 }
 
-fn parse_attributes() {
-  use attrs <- parser.do(
-    parser.until(
-      {
-        use attr <- parser.do(parser.optional(parse_attribute()))
-        use _ <- parser.do(parser.expect_one_of([" ", "\r", "\n", "/>", ">"]))
-        parser.return(attr)
-      },
-      fn(delim) { delim != "/>" && delim != ">" },
-    ),
+fn parse_xml_declaration(
+  splitters: Splitters,
+  state: State(XmlDeclToken),
+) -> Result(ParserReturn(#(String, String, Bool), XmlDeclToken), XmlParseError) {
+  use _ <- result.try(
+    parser2.drop_tokens(state, [XDSpace, XDCarriageReturn, XDNewLine])
+    |> result.map_error(ParserError),
   )
-  parser.return(attrs |> option.values() |> dict.from_list())
-}
+  use ParserReturn(attrs, state) <- result.try(parse_xml_decl_attributes(
+    splitters,
+    state,
+  ))
 
-fn parse_attribute() {
-  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-  use attr_name <- parser.do(parser.expect("="))
-  use _, quote <- parser.do_delim(parser.expect_one_of(["\"", "'"]))
-  use attr_value <- parser.do(parse_attribute_value(quote))
-
-  parser.return(#(attr_name, attr_value))
-}
-
-fn parse_attribute_value(quote: String) {
-  use <- parser.with_mode(AttrValue)
-  use content <- parser.do(
-    parser.do_while(
-      {
-        use value, delim <- parser.do_delim(parser.next_split())
-        use complement <- parser.do(case delim {
-          d if d == quote -> parser.return("")
-          d if d == hex_char_reference -> parse_reference(CharHex)
-          d if d == dec_char_reference -> parse_reference(CharDec)
-          d if d == entity_reference -> parse_reference(Entity)
-          _ -> parser.return(delim)
-        })
-        parser.return(value <> complement)
-      },
-      fn(delim) { delim != quote },
-    ),
+  use version <- result.try(
+    dict.get(attrs, "version")
+    |> result.replace_error(NoVersion),
   )
-  parser.return(string.join(content, ""))
+  let encoding = case dict.get(attrs, "encoding") {
+    Ok(enc) -> enc
+    Error(_) -> "UTF-8"
+  }
+  use standalone <- result.try(case dict.get(attrs, "standalone") {
+    Ok(value) -> parse_standalone(value)
+    Error(_) -> Ok(True)
+  })
+
+  Ok(ParserReturn(#(version, encoding, standalone), state))
 }
 
-fn parse_reference(reference_type: ReferenceType) -> parser.Parser(String, Mode) {
-  use <- parser.with_mode(Reference)
-  use reference_content <- parser.do(parser.expect(semi_colon))
+fn parse_standalone(value: String) -> Result(Bool, XmlParseError) {
+  case value {
+    "yes" -> Ok(True)
+    "no" -> Ok(False)
+    _ -> Error(InvalidStandaloneValue(value))
+  }
+}
+
+fn parse_start_tag(
+  splitters: Splitters,
+  state: State(a),
+) -> Result(ParserReturn(XmlNode, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.start_tag)
+  use ParserReturn(tag_name, state) <- result.try(
+    parser2.any(state)
+    |> result.map_error(ParserError),
+  )
+  let tag_name = string.trim(tag_name)
+
+  use ParserReturn(attributes, state) <- result.try(parse_attributes(
+    splitters,
+    state,
+  ))
+
+  case state.delimiter {
+    option.Some(STSelfClosingTag) ->
+      Ok(ParserReturn(
+        Element(name: tag_name, attrs: attributes, children: []),
+        state,
+      ))
+    option.Some(STGreaterThan) -> {
+      use ParserReturn(children, state) <- result.try(parse_children(
+        splitters,
+        state,
+      ))
+      use ParserReturn(_, state) <- result.try(parse_closing_tag(
+        splitters,
+        state,
+        tag_name,
+      ))
+      Ok(ParserReturn(
+        Element(name: tag_name, attrs: attributes, children: children),
+        state,
+      ))
+    }
+    _ -> Error(ParserError(parser2.Unreachable))
+  }
+}
+
+fn parse_xml_decl_attributes(
+  splitters: Splitters,
+  state: State(XmlDeclToken),
+) -> Result(
+  ParserReturn(dict.Dict(String, String), XmlDeclToken),
+  XmlParseError,
+) {
+  do_parse_xml_decl_attributes(splitters, state, dict.new())
+}
+
+fn do_parse_xml_decl_attributes(
+  splitters: Splitters,
+  state: State(XmlDeclToken),
+  accumulator: dict.Dict(String, String),
+) -> Result(
+  ParserReturn(dict.Dict(String, String), XmlDeclToken),
+  XmlParseError,
+) {
+  use ParserReturn(_, state) <- result.try(
+    parser2.drop_tokens(state, [XDSpace, XDCarriageReturn, XDNewLine])
+    |> result.map_error(ParserError),
+  )
+  use ParserReturn(before, state) <- result.try(
+    parser2.expect_one_of(state, [XDEqual, XDDeclarationEnd])
+    |> result.map_error(ParserError),
+  )
+
+  case state.delimiter, string.trim(before) {
+    option.None, _ -> Error(ParserError(parser2.Unreachable))
+    option.Some(XDDeclarationEnd), "" -> Ok(ParserReturn(accumulator, state))
+    option.Some(XDEqual), attr_name if attr_name != "" -> {
+      use ParserReturn(value, state) <- result.try(parse_attribute_value(
+        splitters,
+        state,
+      ))
+      let new_accumulator = dict.insert(accumulator, attr_name, value)
+      do_parse_xml_decl_attributes(splitters, state, new_accumulator)
+    }
+    _, _ -> Error(InvalidStartTag)
+  }
+}
+
+fn parse_attributes(
+  splitters: Splitters,
+  state: State(StartTagToken),
+) -> Result(
+  ParserReturn(dict.Dict(String, String), StartTagToken),
+  XmlParseError,
+) {
+  do_parse_attributes(splitters, state, dict.new())
+}
+
+fn do_parse_attributes(
+  splitters: Splitters,
+  state: State(StartTagToken),
+  accumulator: dict.Dict(String, String),
+) -> Result(
+  ParserReturn(dict.Dict(String, String), StartTagToken),
+  XmlParseError,
+) {
+  use ParserReturn(_, state) <- result.try(
+    parser2.drop_tokens(state, [STSpace, STCarriageReturn, STNewLine])
+    |> result.map_error(ParserError),
+  )
+  use ParserReturn(before, state) <- result.try(
+    parser2.expect_one_of(state, [STSelfClosingTag, STGreaterThan, STEqualSign])
+    |> result.map_error(ParserError),
+  )
+
+  case state.delimiter, string.trim(before) {
+    option.None, _ -> Error(ParserError(parser2.Unreachable))
+    option.Some(STSelfClosingTag), "" | option.Some(STGreaterThan), "" ->
+      Ok(ParserReturn(accumulator, state))
+    option.Some(STEqualSign), attr_name if attr_name != "" -> {
+      use ParserReturn(value, state) <- result.try(parse_attribute_value(
+        splitters,
+        state,
+      ))
+      let new_accumulator = dict.insert(accumulator, attr_name, value)
+      do_parse_attributes(splitters, state, new_accumulator)
+    }
+    _, _ -> Error(InvalidStartTag)
+  }
+}
+
+fn parse_attribute_value(
+  splitters: Splitters,
+  state: State(a),
+) -> Result(ParserReturn(String, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.attr_value)
+  use ParserReturn(_, state) <- result.try(
+    parser2.expect_one_of(state, [AVSingleQuote, AVDoubleQuote])
+    |> result.map_error(ParserError),
+  )
+
+  case state.delimiter {
+    option.None -> Error(ParserError(parser2.Unreachable))
+    option.Some(quote) -> do_parse_attribute_value(splitters, state, quote, "")
+  }
+}
+
+fn do_parse_attribute_value(
+  splitters: Splitters,
+  state: State(AttrValueToken),
+  quote: AttrValueToken,
+  accumulator: String,
+) -> Result(ParserReturn(String, AttrValueToken), XmlParseError) {
+  use ParserReturn(value, state) <- result.try(
+    parser2.any(state)
+    |> result.map_error(ParserError),
+  )
+
+  case state.delimiter {
+    option.None -> Error(ParserError(parser2.Unreachable))
+    option.Some(AVDoubleQuote) if quote == AVDoubleQuote ->
+      Ok(ParserReturn(accumulator <> value, state))
+    option.Some(AVSingleQuote) if quote == AVSingleQuote ->
+      Ok(ParserReturn(accumulator <> value, state))
+    option.Some(AVHexCharReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        CharHex,
+      ))
+      do_parse_attribute_value(
+        splitters,
+        state,
+        quote,
+        accumulator <> ref_content,
+      )
+    }
+    option.Some(AVDecCharReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        CharDec,
+      ))
+      do_parse_attribute_value(
+        splitters,
+        state,
+        quote,
+        accumulator <> ref_content,
+      )
+    }
+    option.Some(AVEntityReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        Entity,
+      ))
+      do_parse_attribute_value(
+        splitters,
+        state,
+        quote,
+        accumulator <> ref_content,
+      )
+    }
+    _ ->
+      do_parse_attribute_value(
+        splitters,
+        state,
+        quote,
+        accumulator <> value <> state.delimiter_string,
+      )
+  }
+}
+
+fn parse_reference(
+  splitters: Splitters,
+  state: State(a),
+  reference_type: ReferenceType,
+) -> Result(ParserReturn(String, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.reference)
+  use ParserReturn(reference_content, state) <- result.try(
+    parser2.expect(state, RSemicolon)
+    |> result.map_error(ParserError),
+  )
 
   let str_content_res = case reference_type {
     CharDec -> {
@@ -469,11 +617,10 @@ fn parse_reference(reference_type: ReferenceType) -> parser.Parser(String, Mode)
   }
 
   case str_content_res {
-    Ok(str_content) -> parser.return(str_content)
+    Ok(str_content) -> Ok(ParserReturn(str_content, state))
     Error(_) ->
-      parser.fail(
-        "Invalid reference "
-        <> print_reference(reference_type, reference_content),
+      Error(
+        InvalidReference(print_reference(reference_type, reference_content)),
       )
   }
 }
@@ -486,54 +633,108 @@ fn print_reference(reference_type: ReferenceType, content: String) {
   }
 }
 
-fn parse_children() {
-  use <- parser.with_mode(Content)
-  use children_lists <- parser.do(
-    parser.until(parse_child(), fn(delim) { delim != "</" }),
+fn parse_children(
+  splitters: Splitters,
+  state: State(a),
+) -> Result(ParserReturn(List(XmlNode), a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.content)
+
+  use ParserReturn(children, state) <- result.try(
+    do_parse_children(splitters, state, []),
   )
-  let children = list.flatten(children_lists)
   let children = merge_text_nodes(children)
-  parser.return(children)
+
+  Ok(ParserReturn(children, state))
 }
 
-fn parse_child() -> parser.Parser(List(XmlNode), Mode) {
-  use <- parser.with_mode(Content)
-  use text, delim <- parser.do_delim(parser.next_split())
+fn do_parse_children(
+  splitters: Splitters,
+  state: State(ContentToken),
+  accumulator: List(XmlNode),
+) -> Result(ParserReturn(List(XmlNode), ContentToken), XmlParseError) {
+  use ParserReturn(child, state) <- result.try(parse_child(splitters, state))
+  let children = list.append(accumulator, child)
+
+  case state.delimiter {
+    option.None -> Error(ParserError(parser2.Unreachable))
+    option.Some(CEndTagStart) -> Ok(ParserReturn(children, state))
+    _ -> do_parse_children(splitters, state, children)
+  }
+}
+
+fn parse_child(
+  splitters: Splitters,
+  state: State(ContentToken),
+) -> Result(ParserReturn(List(XmlNode), ContentToken), XmlParseError) {
+  use ParserReturn(text, state) <- result.try(
+    parser2.any(state) |> result.map_error(ParserError),
+  )
 
   let text_elem = case text {
     "" -> option.None
     _ -> option.Some(Text(fix_text_whitespace(text)))
   }
-  case delim {
-    "</" -> parser.return([text_elem] |> option.values())
-    "<" -> {
-      use child <- parser.do(parse_start_tag())
-      parser.return([text_elem, option.Some(child)] |> option.values())
+  case state.delimiter {
+    option.None -> Error(ParserError(parser2.Unreachable))
+    option.Some(CEndTagStart) ->
+      Ok(ParserReturn([text_elem] |> option.values(), state))
+    option.Some(CLessThan) -> {
+      use ParserReturn(child, state) <- result.try(parse_start_tag(
+        splitters,
+        state,
+      ))
+      Ok(ParserReturn([text_elem, option.Some(child)] |> option.values(), state))
     }
-    d if d == comment_start -> {
-      use comment <- parser.do(parse_comment())
-      parser.return([text_elem, option.Some(comment)] |> option.values())
+    option.Some(CCommentStart) -> {
+      use ParserReturn(comment, state) <- result.try(parse_comment(
+        splitters,
+        state,
+      ))
+      Ok(ParserReturn(
+        [text_elem, option.Some(comment)] |> option.values(),
+        state,
+      ))
     }
-    d if d == cdata_start -> {
-      use cdata <- parser.do(parse_cdata())
-      parser.return([text_elem, option.Some(cdata)] |> option.values())
+    option.Some(CCDataStart) -> {
+      use ParserReturn(cdata, state) <- result.try(parse_cdata(splitters, state))
+      Ok(ParserReturn([text_elem, option.Some(cdata)] |> option.values(), state))
     }
-    d if d == hex_char_reference -> {
-      use ref_content <- parser.do(parse_reference(CharHex))
-      let text_node = Text(content: ref_content)
-      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    option.Some(CHexCharReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        CharHex,
+      ))
+      Ok(ParserReturn(
+        [text_elem, option.Some(Text(content: ref_content))]
+          |> option.values(),
+        state,
+      ))
     }
-    d if d == dec_char_reference -> {
-      use ref_content <- parser.do(parse_reference(CharDec))
-      let text_node = Text(content: ref_content)
-      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    option.Some(CDecCharReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        CharDec,
+      ))
+      Ok(ParserReturn(
+        [text_elem, option.Some(Text(content: ref_content))]
+          |> option.values(),
+        state,
+      ))
     }
-    d if d == entity_reference -> {
-      use ref_content <- parser.do(parse_reference(Entity))
-      let text_node = Text(content: ref_content)
-      parser.return([text_elem, option.Some(text_node)] |> option.values())
+    option.Some(CEntityReference) -> {
+      use ParserReturn(ref_content, state) <- result.try(parse_reference(
+        splitters,
+        state,
+        Entity,
+      ))
+      Ok(ParserReturn(
+        [text_elem, option.Some(Text(content: ref_content))]
+          |> option.values(),
+        state,
+      ))
     }
-    _ -> parser.fail("Unexpected delimiter in content")
   }
 }
 
@@ -564,38 +765,46 @@ fn do_merge_text_nodes(
   }
 }
 
-fn parse_closing_tag(expected_name: String) {
-  use <- parser.with_mode(EndTag)
-  use _ <- parser.do(parser.drop_chars([" ", "\r", "\n"]))
-  use tagname <- parser.do(parser.expect(">"))
+fn parse_closing_tag(
+  splitters: Splitters,
+  state: State(a),
+  expected_name: String,
+) -> Result(ParserReturn(Nil, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.end_tag)
+  use ParserReturn(tagname, state) <- result.try(
+    parser2.expect(state, ETGreaterThan)
+    |> result.map_error(ParserError),
+  )
+  let tagname = string.trim(tagname)
 
   case tagname == expected_name {
-    True -> parser.return(Nil)
-    False ->
-      parser.fail(
-        "Expected closing tag '</"
-        <> expected_name
-        <> ">' but got '</"
-        <> tagname
-        <> ">'",
-      )
+    True -> Ok(ParserReturn(Nil, state))
+    False -> Error(ClosingTagMismatch(expected_name, tagname))
   }
 }
 
-fn parse_comment() -> parser.Parser(XmlNode, Mode) {
-  use <- parser.with_mode(CommentValue)
-  use comment_content <- parser.do(parser.expect(comment_end))
-  parser.return(Comment(content: comment_content))
+fn parse_comment(
+  splitters: Splitters,
+  state: State(a),
+) -> Result(ParserReturn(XmlNode, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.comment_value)
+  use ParserReturn(comment_content, state) <- result.try(
+    parser2.expect(state, CECommentEnd)
+    |> result.map_error(ParserError),
+  )
+  Ok(ParserReturn(Comment(content: comment_content), state))
 }
 
-fn parse_cdata() -> parser.Parser(XmlNode, Mode) {
-  use <- parser.with_mode(CDATA)
-  use cdata_content <- parser.do(parser.expect(cdata_end))
-  parser.return(Text(content: cdata_content))
-}
-
-fn echo_state(state: parser.State(m)) {
-  io.println("State: " <> string.inspect(state) <> "\n")
+fn parse_cdata(
+  splitters: Splitters,
+  state: State(a),
+) -> Result(ParserReturn(XmlNode, a), XmlParseError) {
+  use state <- parser2.use_splitter(state, splitters.cdata)
+  use ParserReturn(content, state) <- result.try(
+    parser2.expect(state, CDCEnd)
+    |> result.map_error(ParserError),
+  )
+  Ok(ParserReturn(Text(content: content), state))
 }
 
 pub fn get_nodes(root: XmlNode, path: List(String)) -> List(XmlNode) {
