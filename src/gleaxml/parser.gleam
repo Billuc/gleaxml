@@ -1,297 +1,299 @@
 import gleam/dict
-import gleam/int
 import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
-import gleaxml/lexer
-import nibble
-import nibble/lexer as nlexer
+import splitter
 
-pub type XmlDocument {
-  XmlDocument(
-    version: String,
-    encoding: String,
-    standalone: Bool,
-    root_element: XmlNode,
+pub opaque type Parser(return, mode) {
+  Parser(fn(State(mode)) -> Result(ParserReturn(return), String))
+}
+
+pub opaque type State(mode) {
+  State(
+    last_delimiter: String,
+    input: String,
+    splitters: dict.Dict(mode, splitter.Splitter),
+    mode: mode,
   )
 }
 
-pub type XmlNode {
-  Element(
-    name: String,
-    attrs: dict.Dict(String, String),
-    children: List(XmlNode),
-  )
-  Text(content: String)
-  Comment(content: String)
+pub opaque type ParserReturn(return) {
+  ParserReturn(data: return, delimiter: String, remaining: String)
 }
 
-fn tag() -> nibble.Parser(XmlNode, lexer.XmlToken, b) {
-  use name <- nibble.do(tag_open())
-  use attrs <- nibble.do(attributes())
-  use children <- nibble.do(
-    nibble.one_of([simple_tag(name), self_closing_tag()]),
+pub type Runner(return, mode) {
+  Runner(
+    parser: Parser(return, mode),
+    initial_mode: mode,
+    splitters: dict.Dict(mode, splitter.Splitter),
   )
-
-  nibble.return(Element(name:, attrs:, children:))
 }
 
-fn tag_open() -> nibble.Parser(String, lexer.XmlToken, h) {
-  use tok <- nibble.take_map("an opening tag")
+pub fn runner(
+  parser: Parser(return, mode),
+  initial_mode: mode,
+) -> Runner(return, mode) {
+  Runner(parser, initial_mode, dict.new())
+}
 
-  case tok {
-    lexer.TagOpen(name) -> option.Some(name)
-    _ -> option.None
+pub fn register(
+  runner: Runner(return, mode),
+  mode: mode,
+  splitter: splitter.Splitter,
+) -> Runner(return, mode) {
+  Runner(
+    runner.parser,
+    runner.initial_mode,
+    dict.insert(runner.splitters, mode, splitter),
+  )
+}
+
+pub fn run(
+  runner: Runner(return, mode),
+  input: String,
+) -> Result(return, String) {
+  let initial_state = State("", input, runner.splitters, runner.initial_mode)
+  let Parser(parse) = runner.parser
+
+  use ret <- result.try(parse(initial_state))
+  case ret.remaining == "" {
+    True -> Ok(ret.data)
+    False ->
+      Error(
+        "Parser did not consume all input. Remaining input: '"
+        <> ret.remaining
+        <> "'",
+      )
   }
 }
 
-fn text() -> nibble.Parser(XmlNode, lexer.XmlToken, m) {
-  {
-    use texts <- nibble.loop([])
-    use s <- nibble.do(
-      nibble.optional(nibble.one_of([text_content(), reference()])),
-    )
+pub fn return(return_value: return) -> Parser(return, m) {
+  use state <- Parser
+  Ok(ParserReturn(return_value, state.last_delimiter, state.input))
+}
 
-    case s, texts {
-      option.None, [] -> nibble.fail("No text")
-      option.None, _ -> nibble.Break(texts |> list.reverse) |> nibble.return
-      option.Some(t), _ -> nibble.Continue([t, ..texts]) |> nibble.return
+pub fn fail(message: String) -> Parser(r, m) {
+  use _ <- Parser
+  Error(message)
+}
+
+pub fn next_split() -> Parser(String, m) {
+  use state <- Parser
+
+  case state.splitters |> dict.get(state.mode) {
+    Ok(splitter) -> {
+      let #(data, delim, after) = splitter.split(splitter, state.input)
+      Ok(ParserReturn(data, delim, after))
     }
-  }
-  |> nibble.then(fn(texts) {
-    let content = texts |> string.join("")
-    nibble.return(Text(content))
-  })
-}
-
-fn text_content() -> nibble.Parser(String, lexer.XmlToken, e) {
-  use tok <- nibble.take_map("text content")
-
-  case tok {
-    lexer.Text(content) -> option.Some(content)
-    _ -> option.None
+    Error(_) -> Error("Current mode isn't registered !")
   }
 }
 
-fn reference() -> nibble.Parser(String, lexer.XmlToken, l) {
-  use _ <- nibble.do(nibble.token(lexer.ReferenceStart))
-  use reftext <- nibble.do(
-    nibble.take_map("a reference", fn(tok) {
-      case tok {
-        lexer.ReferenceHexCode(code:) ->
-          code
-          |> int.base_parse(16)
-          |> result.try(string.utf_codepoint)
-          |> result.map(fn(code) {
-            string.from_utf_codepoints([code]) |> option.Some
-          })
-          |> result.unwrap(option.None)
-        lexer.ReferenceCode(code:) ->
-          code
-          |> int.base_parse(10)
-          |> result.try(string.utf_codepoint)
-          |> result.map(fn(code) {
-            string.from_utf_codepoints([code]) |> option.Some
-          })
-          |> result.unwrap(option.None)
-        lexer.ReferenceName("amp") -> option.Some("&")
-        lexer.ReferenceName("quot") -> option.Some("\"")
-        lexer.ReferenceName("apos") -> option.Some("'")
-        lexer.ReferenceName("lt") -> option.Some("<")
-        lexer.ReferenceName("gt") -> option.Some(">")
-        lexer.ReferenceName(name) -> option.Some("&" <> name <> ";")
-        _ -> option.None
-      }
-    }),
-  )
-  use _ <- nibble.do(nibble.token(lexer.ReferenceEnd))
+pub fn do(parser: Parser(r, m), then: fn(r) -> Parser(s, m)) -> Parser(s, m) {
+  use state <- Parser
 
-  nibble.return(reftext)
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
+  let new_state = update_state(state, ret)
+
+  let Parser(parse2) = then(ret.data)
+  parse2(new_state)
 }
 
-fn simple_tag(name: String) -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
-  use _ <- nibble.do(nibble.token(lexer.TagClose))
-
-  use children <- nibble.do(children())
-  use _ <- nibble.do(tag_end(name))
-
-  nibble.return(children)
+fn update_state(state: State(m), ret: ParserReturn(r)) -> State(m) {
+  State(..state, last_delimiter: ret.delimiter, input: ret.remaining)
 }
 
-fn self_closing_tag() -> nibble.Parser(List(XmlNode), lexer.XmlToken, d) {
-  use _ <- nibble.do(nibble.token(lexer.TagSelfClose))
+pub fn do_delim(
+  parser: Parser(r, m),
+  then: fn(r, String) -> Parser(s, m),
+) -> Parser(s, m) {
+  use state <- Parser
 
-  nibble.return([])
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
+  let new_state = update_state(state, ret)
+
+  let Parser(parse2) = then(ret.data, ret.delimiter)
+  parse2(new_state)
 }
 
-fn attributes() -> nibble.Parser(dict.Dict(String, String), lexer.XmlToken, a) {
-  use state <- nibble.loop(dict.new())
-  use attr <- nibble.do(nibble.optional(attribute()))
+pub fn do_while(
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+) -> Parser(List(r), m) {
+  use state <- Parser
 
-  case attr {
-    option.Some(a) -> {
-      case dict.has_key(state, a.0) {
-        True -> nibble.fail("Duplicate attribute name: " <> a.0)
-        False ->
-          nibble.Continue(state |> dict.insert(a.0, a.1)) |> nibble.return
-      }
-    }
-    option.None -> nibble.Break(state) |> nibble.return
-  }
+  loop_while(state, parser, continue_fn, [])
 }
 
-fn attribute() -> nibble.Parser(#(String, String), lexer.XmlToken, a) {
-  use name <- nibble.do(attribute_name())
-  use _ <- nibble.do(nibble.token(lexer.Equals))
-  use value <- nibble.do(attribute_value())
-  nibble.return(#(name, value))
-}
-
-fn attribute_name() -> nibble.Parser(String, lexer.XmlToken, a) {
-  use tok <- nibble.take_map("an attribute name")
-
-  case tok {
-    lexer.Text(name) -> option.Some(name)
-    _ -> option.None
-  }
-}
-
-fn attribute_value() -> nibble.Parser(String, lexer.XmlToken, a) {
-  use start_quote <- nibble.do(
-    nibble.one_of([
-      nibble.token(lexer.Quote("'")) |> nibble.replace("'"),
-      nibble.token(lexer.Quote("\"")) |> nibble.replace("\""),
-    ]),
-  )
-  use value <- nibble.do(
-    nibble.take_map("an attribute value", fn(tok) {
-      case tok {
-        lexer.Text(v) -> option.Some(v)
-        _ -> option.None
-      }
-    }),
-  )
-  use end_quote <- nibble.do(
-    nibble.one_of([
-      nibble.token(lexer.Quote("'")) |> nibble.replace("'"),
-      nibble.token(lexer.Quote("\"")) |> nibble.replace("\""),
-    ]),
-  )
-
-  case start_quote == end_quote {
-    True -> nibble.return(value)
-    False -> nibble.fail("Expected " <> start_quote <> ", got " <> end_quote)
-  }
-}
-
-fn children() -> nibble.Parser(List(XmlNode), lexer.XmlToken, c) {
-  use state <- nibble.loop([])
-  use el <- nibble.do(
-    nibble.optional(nibble.one_of([tag(), text(), comment(), cdata()])),
-  )
-
-  case el {
-    option.Some(a) -> nibble.Continue([a, ..state]) |> nibble.return
-    option.None -> nibble.Break(state |> list.reverse) |> nibble.return
-  }
-}
-
-fn tag_end(name: String) -> nibble.Parser(Nil, lexer.XmlToken, g) {
-  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
-  use _ <- nibble.do(nibble.token(lexer.TagEnd(name:)))
-  use _ <- nibble.do(nibble.token(lexer.TagClose))
-
-  nibble.return(Nil)
-}
-
-fn comment() -> nibble.Parser(XmlNode, lexer.XmlToken, k) {
-  use _ <- nibble.do(nibble.token(lexer.CommentStart))
-  use values <- nibble.do(
-    nibble.take_map_while(fn(tok) {
-      case tok {
-        lexer.Text(v) -> option.Some(v)
-        _ -> option.None
-      }
-    }),
-  )
-  use _ <- nibble.do(nibble.token(lexer.CommentEnd))
-
-  nibble.return(Comment(string.join(values, "")))
-}
-
-fn cdata() -> nibble.Parser(XmlNode, lexer.XmlToken, j) {
-  use _ <- nibble.do(nibble.token(lexer.CDATAOpen))
-  use values <- nibble.do(
-    nibble.take_map_while(fn(tok) {
-      case tok {
-        lexer.Text(v) -> option.Some(v)
-        _ -> option.None
-      }
-    }),
-  )
-  use _ <- nibble.do(nibble.token(lexer.CDATAClose))
-
-  nibble.return(Text(string.join(values, "")))
-}
-
-fn xml_declaration() -> nibble.Parser(
-  #(String, option.Option(String), option.Option(Bool)),
-  lexer.XmlToken,
-  n,
+fn loop_while(
+  state: State(m),
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+  results: List(r),
 ) {
-  use _ <- nibble.do(nibble.token(lexer.XmlDeclarationStart))
-  use attrs <- nibble.do(attributes())
-  use _ <- nibble.do(nibble.token(lexer.XmlDeclarationEnd))
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
 
-  let attr_list = dict.to_list(attrs)
-  let #(version, attr_list) = pop_attr(attr_list, "version")
-  let #(encoding, attr_list) = pop_attr(attr_list, "encoding")
-  let #(standalone, attr_list) = pop_attr(attr_list, "standalone")
-
-  case version, attr_list {
-    option.None, _ -> nibble.fail("Version is required")
-    _, [el, ..] -> nibble.fail("Incorrect attribute: " <> el.0)
-    option.Some(v), [] ->
-      nibble.return(#(
-        v,
-        encoding,
-        standalone |> option.map(fn(s) { s == "yes" }),
+  case continue_fn(ret.delimiter) {
+    True ->
+      loop_while(update_state(state, ret), parser, continue_fn, [
+        ret.data,
+        ..results
+      ])
+    False ->
+      Ok(ParserReturn(
+        [ret.data, ..results] |> list.reverse(),
+        ret.delimiter,
+        ret.remaining,
       ))
   }
 }
 
-fn pop_attr(
-  attrs: List(#(String, String)),
-  attr: String,
-) -> #(option.Option(String), List(#(String, String))) {
-  case list.key_pop(attrs, attr) {
-    Error(Nil) -> #(option.None, attrs)
-    Ok(#(value, new_attrs)) -> #(option.Some(value), new_attrs)
+pub fn until(
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+) -> Parser(List(r), m) {
+  use state <- Parser
+
+  case continue_fn(state.last_delimiter) {
+    False -> Ok(ParserReturn([], state.last_delimiter, state.input))
+    True -> loop_until(state, parser, continue_fn, [])
   }
 }
 
-pub fn parser() -> nibble.Parser(XmlDocument, lexer.XmlToken, i) {
-  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
-  use xml_decl_info <- nibble.do(nibble.optional(xml_declaration()))
-  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
-  use node <- nibble.do(tag())
-  use _ <- nibble.do(nibble.take_while(fn(t) { t == lexer.Text(" ") }))
+fn loop_until(
+  state: State(m),
+  parser: Parser(r, m),
+  continue_fn: fn(String) -> Bool,
+  results: List(r),
+) {
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
 
-  case xml_decl_info {
-    option.None -> nibble.return(XmlDocument("1.0", "UTF-8", True, node))
-    option.Some(#(v, e, s)) ->
-      nibble.return(XmlDocument(
-        v,
-        e |> option.unwrap("UTF-8"),
-        s |> option.unwrap(True),
-        node,
+  case continue_fn(ret.delimiter) {
+    True ->
+      loop_until(update_state(state, ret), parser, continue_fn, [
+        ret.data,
+        ..results
+      ])
+    False ->
+      Ok(ParserReturn(
+        [ret.data, ..results] |> list.reverse(),
+        ret.delimiter,
+        ret.remaining,
       ))
   }
 }
 
-pub fn parse(
-  tokens: List(nlexer.Token(lexer.XmlToken)),
-) -> Result(XmlDocument, List(nibble.DeadEnd(lexer.XmlToken, f))) {
-  nibble.run(tokens, parser())
+pub fn keep_until(stop_string: String) -> Parser(String, m) {
+  use state <- Parser
+  do_keep_until(state, next_split(), stop_string, "")
+}
+
+fn do_keep_until(
+  state: State(m),
+  parser: Parser(String, m),
+  stop_string: String,
+  accumulator: String,
+) {
+  let Parser(parse) = parser
+  use ret <- result.try(parse(state))
+
+  case ret.delimiter == stop_string {
+    True ->
+      Ok(ParserReturn(accumulator <> ret.data, ret.delimiter, ret.remaining))
+    False ->
+      do_keep_until(
+        update_state(state, ret),
+        parser,
+        stop_string,
+        accumulator <> ret.data <> ret.delimiter,
+      )
+  }
+}
+
+pub fn expect(expected_split: String) -> Parser(String, m) {
+  use state <- Parser
+  let Parser(parse) = next_split()
+
+  use ret <- result.try(parse(state))
+
+  case ret.delimiter == expected_split {
+    True -> Ok(ret)
+    False ->
+      Error(
+        "Expected '" <> expected_split <> "' but got '" <> ret.delimiter <> "'",
+      )
+  }
+}
+
+pub fn expect_one_of(expected_splits: List(String)) -> Parser(String, m) {
+  use state <- Parser
+  let Parser(parse) = next_split()
+
+  use ret <- result.try(parse(state))
+
+  case expected_splits |> list.contains(ret.delimiter) {
+    True -> Ok(ret)
+    False ->
+      Error(
+        "Expected one of '"
+        <> expected_splits |> string.join("', '")
+        <> "' but got '"
+        <> ret.delimiter
+        <> "'",
+      )
+  }
+}
+
+pub fn optional(parser: Parser(r, m)) -> Parser(option.Option(r), m) {
+  use state <- Parser
+  let Parser(parse) = parser
+
+  case parse(state) {
+    Ok(ret) ->
+      Ok(ParserReturn(option.Some(ret.data), ret.delimiter, ret.remaining))
+    Error(_) -> Ok(ParserReturn(option.None, "", state.input))
+  }
+}
+
+pub fn drop_while(is_to_drop: fn(String, String) -> Bool) -> Parser(Nil, m) {
+  use state <- Parser
+  do_drop_while(state, is_to_drop)
+}
+
+fn do_drop_while(state: State(m), is_to_drop: fn(String, String) -> Bool) {
+  let Parser(parse) = next_split()
+  use ret <- result.try(parse(state))
+
+  case is_to_drop(ret.data, ret.delimiter) {
+    True -> do_drop_while(update_state(state, ret), is_to_drop)
+    False -> Ok(ParserReturn(Nil, "", state.input))
+  }
+}
+
+pub fn drop() -> Parser(Nil, m) {
+  use _ <- do(next_split())
+  return(Nil)
+}
+
+pub fn drop_chars(chars: List(String)) -> Parser(Nil, m) {
+  drop_while(fn(before, delim) { before == "" && list.contains(chars, delim) })
+}
+
+pub fn with_mode(new_mode: m, parser: fn() -> Parser(r, m)) -> Parser(r, m) {
+  use state <- Parser
+  let new_state = State(..state, mode: new_mode)
+
+  let Parser(parse) = parser()
+  parse(new_state)
+}
+
+pub fn tap_state(tap_fn: fn(State(m)) -> Nil) -> Parser(Nil, m) {
+  use state <- Parser
+  tap_fn(state)
+  Ok(ParserReturn(Nil, state.last_delimiter, state.input))
 }
